@@ -1,0 +1,64 @@
+[project]
+name = "simplendarray"
+version = "0.0.1a0"
+description = "A simple jax-like array library for educational purposes."
+readme = "README.md"
+authors = [
+    { name = "Vikram Rangarajan", email = "vikram.rangaraja@gmail.com" }
+]
+license = "MIT"
+requires-python = ">=3.14"
+dependencies = []
+
+[tool.pyrefly]
+project-includes = [
+    "**/*.py*",
+    "**/*.ipynb",
+]
+project-excludes = [
+    "**/*_stubs.py",
+]
+
+[tool.pyrefly.errors]
+unused-ignore = "error"
+
+[tool.ruff.lint]
+extend-select = ["A", "E", "F", "I", "Q", "S", "W"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**/*.py" = ["S101"]  # Allow asserts in tests
+
+[tool.ruff]
+line-length = 120
+extend-exclude = ["**/*_stubs.py"]
+
+[tool.coverage.run]
+source = ["src/simplendarray"]
+omit = ["**/*_stubs.py"]
+context = "test"
+
+[tool.coverage.html]
+show_contexts = true
+
+[tool.coverage.report]
+exclude_also = [
+    "@.*\\.compile_fn\\(", # Excludes the kernel python functions themselves
+]
+
+[build-system]
+requires = ["uv_build>=0.10.4,<0.11.0"]
+build-backend = "uv_build"
+
+[dependency-groups]
+dev = [
+    "hypothesis[numpy]>=6.156.1",
+    "mkdocs>=1.6.1",
+    "mkdocs-material>=9.7.6",
+    "mkdocstrings[python]>=1.0.4",
+    "prek>=0.4.8",
+    "pyrefly>=1.1.1",
+    "pytest>=9.1.1",
+    "pytest-cov>=7.1.0",
+    "pytest-xdist[psutil]>=3.8.0",
+    "ruff>=0.15.20",
+]

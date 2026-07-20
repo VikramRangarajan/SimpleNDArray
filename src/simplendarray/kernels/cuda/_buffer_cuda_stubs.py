@@ -1,0 +1,13 @@
+# Auto-generated stub for compiled functions.
+from __future__ import annotations
+from typing import TYPE_CHECKING
+
+from simplendarray.transpiler.runtime import PythonModule
+
+class _BufferCudaModuleClass(PythonModule):
+    if TYPE_CHECKING:
+        def cuda_malloc(self, size: int) -> int: ...
+        def cuda_free(self, ptr: int) -> None: ...
+        def cuda_memcpy_h2d(self, dst: int, src: int, size: int) -> None: ...
+        def cuda_memcpy_d2h(self, dst: int, src: int, size: int) -> None: ...
+        pass
