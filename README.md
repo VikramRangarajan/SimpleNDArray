@@ -3,6 +3,14 @@
 
 An NDArray python library. Supports CPU/CUDA operations. Mostly educational, for my own learning.
 
+# Installation
+
+```bash
+uv add git+https://github.com/VikramRangarajan/SimpleNDArray.git
+```
+
+Requires Python >= 3.14.
+
 # Development / Testing
 
 Clone the repository. Run `uv sync`. Run `uv run prek install` to install the pre-commit hooks. The pre-commit hook runs `ruff format`, `ruff check --fix`, and `pyrefly check` for code quality. You can use `uv run prek run --all-files` to run all pre-commit hooks on all files.
@@ -18,8 +26,6 @@ AI was used only to generate tests, and do other menial tasks that came with the
 - Pivot away from array.array for Buffer? Can get rid of typecode shenanigans
 - Add array broadcasting
 - Transpiler: Add macro support for forced inlining
-- Bind all kernels to Array class
-- Implement element wise for CUDA
 - Implement more proper testing suite?
 - Benchmarking vs. numpy, pytorch/cublas, etc.
 - Start with reduction ops, then go to linear ops (matmul, conv), then flash attention, moe, etc.
