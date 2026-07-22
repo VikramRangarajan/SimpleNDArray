@@ -165,14 +165,14 @@ class TestSlicing:
     def test_getitem_1d_int(self):
         a = self._1d(5)
         r = a[2]
-        assert r.to_python() == [2]
+        assert r.shape == ()
+        assert r.to_python() == 2
 
     def test_getitem_1d_neg_int(self):
         a = self._1d(5)
-        # a[-1] selects index 4, with shape (1,) stride (0,), squeeze to scalar
-        r = a[-1].squeeze(0)
-        assert r.is_contiguous
-        assert r.data.data[r.offset] == 4
+        r = a[-1]
+        assert r.shape == ()
+        assert r.to_python() == 4
 
     def test_getitem_1d_full_slice(self):
         a = self._1d(5)
@@ -229,14 +229,14 @@ class TestSlicing:
     def test_getitem_2d_int_row(self):
         a = self._2d(3, 4)
         r = a[1, :]
-        assert r.shape == (1, 4)
-        assert r.to_python() == [[4, 5, 6, 7]]
+        assert r.shape == (4,)
+        assert r.to_python() == [4, 5, 6, 7]
 
     def test_getitem_2d_int_col(self):
         a = self._2d(3, 4)
         r = a[:, 2]
-        assert r.shape == (3, 1)
-        assert r.to_python() == [[2], [6], [10]]
+        assert r.shape == (3,)
+        assert r.to_python() == [2, 6, 10]
 
     def test_getitem_2d_submatrix(self):
         a = self._2d(4, 4)
@@ -332,10 +332,181 @@ class TestSlicing:
         assert s.strides == ()
         assert s.offset == 0
 
+    def test_squeeze_negative(self):
+        a = Array(Buffer(array.array("i", [10])), (1,), (0,), 0)
+        s = a.squeeze(-1)
+        assert s.shape == ()
+        assert s.strides == ()
+
+    def test_squeeze_2d_negative(self):
+        a = Array(Buffer(array.array("i", [1, 2, 3])), (1, 3), (3, 1), 0)
+        s = a.squeeze(-2)
+        assert s.shape == (3,)
+        assert s.strides == (1,)
+
     def test_squeeze_raises_on_non_one(self):
         a = self._1d(5)
         with pytest.raises(ValueError, match="Can only squeeze"):
             a.squeeze(0)
+
+    def test_squeeze_negative_raises_on_non_one(self):
+        a = self._1d(5)
+        with pytest.raises(ValueError, match="Can only squeeze"):
+            a.squeeze(-1)
+
+    # --- unsqueeze ---
+
+    def test_unsqueeze_1d_to_2d_front(self):
+        a = self._1d(5)
+        u = a.unsqueeze(0)
+        assert u.shape == (1, 5)
+        assert u.strides == (1, 1)
+        assert u.to_python() == [[0, 1, 2, 3, 4]]
+
+    def test_unsqueeze_1d_to_2d_back(self):
+        a = self._1d(5)
+        u = a.unsqueeze(1)
+        assert u.shape == (5, 1)
+        assert u.strides == (1, 1)
+        assert u.to_python() == [[0], [1], [2], [3], [4]]
+
+    def test_unsqueeze_2d_to_3d_middle(self):
+        a = self._2d(2, 3)
+        u = a.unsqueeze(1)
+        assert u.shape == (2, 1, 3)
+        assert u.to_python() == [[[0, 1, 2]], [[3, 4, 5]]]
+
+    def test_unsqueeze_negative(self):
+        a = self._1d(3)
+        u = a.unsqueeze(-1)
+        assert u.shape == (3, 1)
+        assert u.to_python() == [[0], [1], [2]]
+
+    def test_unsqueeze_zero_dim_raises(self):
+        a = Array(Buffer(array.array("i", [42])), (), (), 0)
+        with pytest.raises(ValueError, match="Cannot unsqueeze a 0-dimensional"):
+            a.unsqueeze(0)
+
+    def test_unsqueeze_tuple_two_dims(self):
+        a = self._2d(3, 4)
+        u = a.unsqueeze((0, 2))
+        assert u.shape == (1, 3, 4, 1)
+        assert u.to_python() == [[[[0], [1], [2], [3]], [[4], [5], [6], [7]], [[8], [9], [10], [11]]]]
+
+    def test_unsqueeze_tuple_three_dims(self):
+        a = self._1d(3)
+        u = a.unsqueeze((0, 1, 2))
+        assert u.shape == (1, 1, 3, 1)
+        assert u.to_python() == [[[[0], [1], [2]]]]
+
+    def test_unsqueeze_tuple_negative(self):
+        a = self._2d(2, 3)
+        u = a.unsqueeze((-1, -2))
+        assert u.shape == (2, 1, 3, 1)
+        assert u.to_python() == [[[[0], [1], [2]]], [[[3], [4], [5]]]]
+
+    # --- ellipsis (...) ---
+
+    def test_getitem_1d_ellipsis(self):
+        a = self._1d(5)
+        r = a[...]
+        assert r.shape == (5,)
+        assert r.to_python() == [0, 1, 2, 3, 4]
+
+    def test_getitem_2d_ellipsis(self):
+        a = self._2d(3, 4)
+        r = a[...]
+        assert r.shape == (3, 4)
+        assert r.to_python() == a.to_python()
+
+    def test_getitem_2d_ellipsis_int(self):
+        a = self._2d(3, 4)
+        r = a[1, ...]
+        assert r.shape == (4,)
+        assert r.to_python() == [4, 5, 6, 7]
+
+    def test_getitem_2d_int_ellipsis(self):
+        a = self._2d(3, 4)
+        r = a[..., 1]
+        assert r.shape == (3,)
+        assert r.to_python() == [1, 5, 9]
+
+    def test_getitem_2d_ellipsis_slice(self):
+        a = self._2d(4, 4)
+        r = a[1:3, ...]
+        assert r.shape == (2, 4)
+        assert r.to_python() == [[4, 5, 6, 7], [8, 9, 10, 11]]
+
+    def test_getitem_2d_slice_ellipsis(self):
+        a = self._2d(4, 4)
+        r = a[..., 1:3]
+        assert r.shape == (4, 2)
+        assert r.to_python() == [[1, 2], [5, 6], [9, 10], [13, 14]]
+
+    def test_getitem_3d_ellipsis_middle(self):
+        import array
+
+        from simplendarray.array import Array as Arr
+        from simplendarray.buffer import Buffer
+
+        buf = Buffer(array.array("i", list(range(24))))
+        a = Arr(buf, (2, 3, 4), (12, 4, 1), 0)
+        r = a[..., 1]
+        assert r.shape == (2, 3)
+        assert r.to_python() == [[1, 5, 9], [13, 17, 21]]
+
+    def test_getitem_3d_int_ellipsis_int(self):
+        import array
+
+        from simplendarray.array import Array as Arr
+        from simplendarray.buffer import Buffer
+
+        buf = Buffer(array.array("i", list(range(24))))
+        a = Arr(buf, (2, 3, 4), (12, 4, 1), 0)
+        r = a[0, ..., 1]
+        assert r.shape == (3,)
+        assert r.to_python() == [1, 5, 9]
+
+    def test_getitem_multiple_ellipsis_raises(self):
+        a = self._2d(3, 4)
+        with pytest.raises(ValueError, match="Can only have at most 1 ellipsis"):
+            a[..., ...]
+
+    def test_getitem_fewer_indices_pads_with_slice(self):
+        a = self._2d(3, 4)
+        r = a[1]
+        assert r.shape == (4,)
+        assert r.to_python() == [4, 5, 6, 7]
+
+    # --- multiple int indices ---
+
+    def test_getitem_2d_two_ints(self):
+        a = self._2d(3, 4)
+        r = a[1, 2]
+        assert r.shape == ()
+        assert r.to_python() == 6
+
+    def test_getitem_3d_three_ints(self):
+        import array
+
+        from simplendarray.array import Array as Arr
+        from simplendarray.buffer import Buffer
+
+        buf = Buffer(array.array("i", list(range(24))))
+        a = Arr(buf, (2, 3, 4), (12, 4, 1), 0)
+        r = a[1, 2, 3]
+        assert r.shape == ()
+        assert r.to_python() == 23
+
+    # --- is_contiguous ---
+
+    def test_is_contiguous_scalar(self):
+        a = Array(Buffer(array.array("i", [42])), (), (), 0)
+        assert a.is_contiguous
+
+    def test_is_contiguous_empty_dim(self):
+        a = Array(Buffer(array.array("i", [])), (0, 5), (0, 0), 0)
+        assert a.is_contiguous
 
     # --- transpose ---
 
@@ -1161,6 +1332,63 @@ class TestReduction:
         r = a.prod((1,))
         assert r.to_python() == [6, 20]
 
+    def test_reduce_all_dims_default(self):
+        a = Array.from_iterable([[1, 2], [3, 4]], "i")
+        r = a.sum()
+        assert r.shape == ()
+        assert r.to_python() == 10
+
+    def test_reduce_all_dims_explicit(self):
+        a = Array.from_iterable([[1, 2], [3, 4]], "i")
+        r = a.sum((0, 1))
+        assert r.shape == ()
+        assert r.to_python() == 10
+
+    def test_sum_1d(self):
+        a = Array.from_iterable([1, 2, 3, 4], "i")
+        r = a.sum((0,))
+        assert r.shape == ()
+        assert r.to_python() == 10
+
+    def test_max_1d(self):
+        a = Array.from_iterable([3, 1, 4, 1], "i")
+        r = a.max((0,))
+        assert r.shape == ()
+        assert r.to_python() == 4
+
+    def test_min_1d(self):
+        a = Array.from_iterable([3, 1, 4, 1], "i")
+        r = a.min((0,))
+        assert r.shape == ()
+        assert r.to_python() == 1
+
+    def test_prod_1d(self):
+        a = Array.from_iterable([2, 3, 4], "i")
+        r = a.prod((0,))
+        assert r.shape == ()
+        assert r.to_python() == 24
+
+    def test_sum_negative_axis(self):
+        a = Array.from_iterable([[1, 2], [3, 4]], "i")
+        r = a.sum((-1,))
+        assert r.to_python() == [3, 7]
+
+    def test_sum_multiple_negative_axes(self):
+        a = Array.from_iterable([[1, 2], [3, 4]], "i")
+        r = a.sum((-2, -1))
+        assert r.shape == ()
+        assert r.to_python() == 10
+
+    def test_max_negative_axis(self):
+        a = Array.from_iterable([[1, 5], [3, 2]], "i")
+        r = a.max((-1,))
+        assert r.to_python() == [5, 3]
+
+    def test_prod_negative_axis(self):
+        a = Array.from_iterable([[2, 3], [4, 5]], "i")
+        r = a.prod((-1,))
+        assert r.to_python() == [6, 20]
+
 
 class TestReductionErrorPaths:
     def test_typecode_mismatch(self):
@@ -1197,23 +1425,12 @@ class TestReductionErrorPaths:
         with pytest.raises(ValueError, match="same size, dtype, and device"):
             dispatch_reduction(a, out, "add", (0,))
 
-    def test_ndim_lt_2_raises(self):
-        a = _make_array((4,))
-        out = _make_array((4,))
-        with pytest.raises(ValueError, match="Unsqueeze not implemented yet"):
-            dispatch_reduction(a, out, "add", (0,))
-
     def test_output_shape_mismatch(self):
         a = _make_array((3, 4))
         out_buf = Buffer(array.array("i", [0] * 5))
         out = Array(out_buf, (5,), (1,), 0)
         with pytest.raises(ValueError, match="Output array is invalid shape"):
             dispatch_reduction(a, out, "add", (0,))
-
-    def test_reduction_op_ndim_lt_2(self):
-        a = Array.from_iterable([1, 2, 3, 4], "i")
-        with pytest.raises(ValueError, match="Unsqueeze not implemented yet"):
-            a.sum((0,))
 
     def test_gpu_mocked(self, monkeypatch):
         mock_dispatch = MagicMock()

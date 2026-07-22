@@ -124,13 +124,14 @@ class Array:
         for i in range(self.shape[0]):
             # Does [self[0, :, :, ...], self[1, :, :, ...], ..., self[shape[0] - 1, :, :, ...]]
             # Then recursively calls to_python on each of these children, until base case reached
-            indexed = self[i, *(slice(None) for _ in range(self.ndim - 1))].squeeze(0)
+            indexed = self[i, *(slice(None) for _ in range(self.ndim - 1))]
             nested.append(indexed.to_python(buf))
         return nested
 
     def squeeze(self, dims: int | Iterable[int]) -> "Array":
         if isinstance(dims, int):
             dims = [dims]
+        dims = [d % self.ndim if self.ndim > 0 else d for d in dims]
         if self.ndim == 0 or any(self.shape[d] != 1 for d in dims):
             raise ValueError("Can only squeeze a non scalar array with length 1 dims, but shape is", self.shape)
         dims_set = set(dims)
@@ -138,9 +139,34 @@ class Array:
         new_strides = tuple(stride for i, stride in enumerate(self.strides) if i not in dims_set)
         return Array(self.data, new_shape, new_strides, self.offset)
 
-    def __getitem__(self, items: tuple[int | slice, ...] | int | slice):
+    def unsqueeze(self, dim: int | tuple[int, ...]) -> "Array":
+        if isinstance(dim, int):
+            dim = (dim,)
+        if self.ndim == 0:
+            raise ValueError("Cannot unsqueeze a 0-dimensional array")
+        dims = sorted(d % (self.ndim + 1) for d in dim)
+        new_shape = self.shape
+        new_strides = self.strides
+        shift = 0
+        for d in dims:
+            pos = d + shift
+            new_shape = new_shape[:pos] + (1,) + new_shape[pos:]
+            new_strides = new_strides[:pos] + (1,) + new_strides[pos:]
+            shift += 1
+        return Array(self.data, new_shape, new_strides, self.offset)
+
+    def __getitem__(self, items: tuple[int | slice | ..., ...] | int | slice | ...):
         if not isinstance(items, tuple):
             items = (items,)
+        num_ellipses = sum(1 if x == ... else 0 for x in items)
+        if num_ellipses > 1:
+            raise ValueError("Can only have at most 1 ellipsis")
+        if num_ellipses == 1:
+            idx = items.index(...)
+            middle = (slice(None),) * (self.ndim - (len(items) - 1))
+            items = items[:idx] + middle + items[idx + 1 :]
+        elif len(items) < self.ndim:
+            items = items + (slice(None),) * (self.ndim - len(items))
         if len(items) != self.ndim:
             raise ValueError("Must index the same number of dimensions as the array")
         new_shape = []
@@ -149,8 +175,6 @@ class Array:
         for shape, stride, item in zip(self.shape, self.strides, items):
             if isinstance(item, int):
                 item = slice(item, item + 1).indices(shape)[0]
-                new_shape.append(1)
-                new_strides.append(0)
                 new_offset += stride * item
             elif isinstance(item, slice):
                 start, stop, step = item.indices(shape)
@@ -308,12 +332,15 @@ class Array:
 
     @staticmethod
     def reduction_op(op: str):
-        def fn(self: Array, dims: tuple[int]):
-            reduction_size = product(x for i, x in enumerate(self.shape) if i in dims)
-            buf = buf_cls[self.device].empty(self.size // reduction_size, self.data.typecode)
-            out = Array(buf, (self.size // reduction_size,), (1,), 0)
+        def fn(self: Array, dims: tuple[int, ...] | None = None):
+            if dims is None:
+                dims = tuple(range(self.ndim))
+            dims = tuple(d % self.ndim for d in dims)
+            reduced_shape = tuple(x for i, x in enumerate(self.shape) if i not in dims)
+            buf = buf_cls[self.device].empty(product(reduced_shape), self.data.typecode)
+            out = Array(buf, (product(reduced_shape),), (1,), 0)
             dispatch_reduction(self, out, op, dims)
-            return out
+            return out.reshape(reduced_shape)
 
         return fn
 

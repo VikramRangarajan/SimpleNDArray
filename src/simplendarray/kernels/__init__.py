@@ -122,7 +122,7 @@ def dispatch_arange(buf: Buffer | BufferCuda, offset: int, stride: int, n: int):
     elem_wise_modules[buf.device].DISPATCH_DICT_arange[dispatch_key](a, offset, stride, n)
 
 
-def dispatch_reduction(a_arr: Array, b_arr: Array, op: str, dims: tuple[int]):
+def dispatch_reduction(a_arr: Array, b_arr: Array, op: str, dims: tuple[int, ...]):
     if a_arr.data.typecode != b_arr.data.typecode or a_arr.device != b_arr.device:
         raise ValueError("All arrays must be the same size, dtype, and device")
     dt = get_dtype(a_arr.data.typecode)
@@ -132,16 +132,14 @@ def dispatch_reduction(a_arr: Array, b_arr: Array, op: str, dims: tuple[int]):
     else:
         dispatch_key = (("T", ctype(dt)), ("Op", f"_{op}_{cname(dt)}"))
 
-    if a_arr.ndim < 2:
-        raise ValueError("Unsqueeze not implemented yet")
+    if a_arr.ndim == 1:
+        a_arr = a_arr.unsqueeze(0)
+        dims = (1,)
 
-    # if a_arr.ndim != 2:
     not_reduce_dims = tuple(set(range(a_arr.ndim)) - set(dims))
-    print(not_reduce_dims, dims)
     a_arr = a_arr.transpose(not_reduce_dims + dims)
     a_arr = a_arr.reshape((product(a_arr.shape[i] for i in range(len(not_reduce_dims))), -1))
 
-    print(b_arr.shape, a_arr.shape)
     if b_arr.shape != (a_arr.shape[0],):
         raise ValueError("Output array is invalid shape")
     a = a_arr.data.address
