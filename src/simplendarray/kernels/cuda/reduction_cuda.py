@@ -1,10 +1,12 @@
+from math import sqrt
 from typing import Annotated, Callable
 
 from simplendarray.dtypes import all_dtypes, cname, ctype, i64, u32
 from simplendarray.transpiler.runtime import DType, SpecItem
+from simplendarray.transpiler.transpiler import ref, sizeof
 
 from ._reduction_cuda_stubs import _ReductionModuleClass
-from .helpers import __syncthreads, blockDim, blockIdx, dim3, threadIdx
+from .helpers import __syncthreads, blockDim, blockIdx, cudaFree, cudaMalloc, dim3, threadIdx
 
 void = None
 
@@ -48,8 +50,8 @@ def _min[T: DType](x: T, y: T) -> T:
 
 reduction_kernel_specs: list[SpecItem] = []
 for dt in all_dtypes:
-    for op in ["add", "max", "min"]:  # TODO: mul
-        default_value = {"add": "0", "max": "-INFINITY", "min": "INFINITY"}[op]
+    for op in ["add", "max", "min", "mul"]:
+        default_value = {"add": "0", "max": "-INFINITY", "min": "INFINITY", "mul": "1"}[op]
         reduction_kernel_specs.append(
             SpecItem(
                 {"T": ctype(dt), "Op": f"_{op}_{cname(dt)}", "T_DEFAULT_VALUE": default_value},
@@ -96,20 +98,48 @@ def reduction_kernel[T: DType, Op: Callable, T_DEFAULT_VALUE: DType](
 
 numerical_unary_specs: list[SpecItem] = []
 for dt in all_dtypes:
-    for op in ["add", "max", "min"]:  # TODO: mul
+    for op in ["add", "max", "min", "mul"]:
         numerical_unary_specs.append(
             SpecItem({"T": ctype(dt), "Op": f"reduction_kernel_{op}_{cname(dt)}"}, f"reduction_{op}_{cname(dt)}")
         )
+
+
+@reduction_module_cuda.compile_fn()
+def ceil_sqrt(i: i64) -> i64:
+    r: int = sqrt(i)  # type: ignore
+    while 1 * r * r < i:
+        r += 1
+    return r
+
+
+"""
+Fixed block dim 1024
+Fixed number of kernel calls 2
+Elements per thread = T
+Elements per block = T * 1024
+Number of blocks = ceildiv(d, 1024 * T)
+For length d, we want num blocks = ceildiv(d, 1024 * T) <= 1024 * T => (1024^2) T^2 = d, T = ceil(sqrt(d/1024^2))
+"""
 
 
 @reduction_module_cuda.compile_fn(numerical_unary_specs, pybind=True)
 def reduction[T: DType, Op: Callable](
     a: list[T], a_off: i64, a_row_stride: i64, a_col_stride: i64, c: list[T], c_off: i64, c_stride: i64, n: i64, d: i64
 ) -> void:
-    block_dim_x: u32 = (d + 1024 - 1) // 1024
+    coarse_factor: i64 = ceil_sqrt(d // (1024 * 1024))
+    if coarse_factor < 1:
+        coarse_factor = 1
+    # Really this coarse factor can be any number >= 1. course_factor_2 makes up for any extra blocks > 1024.
+    block_dim_x: u32 = (d + (coarse_factor * 1024) - 1) // (coarse_factor * 1024)
     block_dim_y: u32 = n
     grid: dim3 = [block_dim_x, block_dim_y]  # type: ignore
-    Op[[[grid, 1024]]](a, a_off, a_row_stride, a_col_stride, c, c_off, c_stride, d, 16)  # type: ignore[unsupported-operation]
+    work_arr: list[T] = []
+    cudaMalloc(ref(work_arr), block_dim_x * block_dim_y * sizeof(T))
+    Op[[[grid, 1024]]](a, a_off, a_row_stride, a_col_stride, work_arr, 0, block_dim_x, d, coarse_factor)  # type: ignore[unsupported-operation]
+    grid = [1, block_dim_y]  # type: ignore
+    coarse_factor_2: i64 = (block_dim_x + 1024 - 1) // 1024
+    Op[[[grid, 1024]]](work_arr, 0, block_dim_x, 1, c, c_off, c_stride, block_dim_x, coarse_factor_2)  # type: ignore[unsupported-operation]
+    cudaFree(work_arr)
 
 
 reduction_module = reduction_module_cuda.compile("nvcc")

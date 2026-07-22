@@ -69,6 +69,14 @@ class Array:
         return cls(buffer, shape, strides, offset)
 
     @classmethod
+    def empty(cls, numel: int, dtype: str | type[DType], device: Device = "cpu") -> "Array":
+        if numel < 0:
+            raise ValueError("numel must be >= 0")
+        _typecode = typecode(get_dtype(dtype))
+        buffer = buf_cls[device].empty(numel, _typecode)
+        return cls(buffer, (numel,), (1,), 0)
+
+    @classmethod
     def arange(cls, numel: int, dtype: str | type[DType], device: Device = "cpu") -> "Array":
         if numel < 0:
             raise ValueError("numel must be >= 0")
@@ -106,15 +114,17 @@ class Array:
     def __repr__(self) -> str:
         return f"Array({self.to_python()}, shape={self.shape}, strides={self.strides}, offset={self.offset})"
 
-    def to_python(self) -> NestedIterable:
+    def to_python(self, buf=None) -> NestedIterable:
+        if buf is None:
+            buf = self.data.data
         if self.ndim == 0:
-            return self.data.data[self.offset]
+            return buf[self.offset]
         nested = []
         for i in range(self.shape[0]):
             # Does [self[0, :, :, ...], self[1, :, :, ...], ..., self[shape[0] - 1, :, :, ...]]
             # Then recursively calls to_python on each of these children, until base case reached
             indexed = self[i, *(slice(None) for _ in range(self.ndim - 1))].squeeze(0)
-            nested.append(indexed.to_python())
+            nested.append(indexed.to_python(buf))
         return nested
 
     def squeeze(self, dims: int | Iterable[int]) -> "Array":
