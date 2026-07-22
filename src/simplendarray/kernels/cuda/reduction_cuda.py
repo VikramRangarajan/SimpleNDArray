@@ -1,10 +1,12 @@
+from math import sqrt
 from typing import Annotated, Callable
 
 from simplendarray.dtypes import all_dtypes, cname, ctype, i64, u32
 from simplendarray.transpiler.runtime import DType, SpecItem
+from simplendarray.transpiler.transpiler import ref, sizeof
 
 from ._reduction_cuda_stubs import _ReductionModuleClass
-from .helpers import __syncthreads, blockDim, blockIdx, dim3, threadIdx
+from .helpers import __syncthreads, blockDim, blockIdx, cudaFree, cudaMalloc, dim3, threadIdx
 
 void = None
 
@@ -102,14 +104,41 @@ for dt in all_dtypes:
         )
 
 
+@reduction_module_cuda.compile_fn()
+def ceil_sqrt(i: i64) -> i64:
+    r: int = sqrt(i)  # type: ignore
+    while 1 * r * r < i:
+        r += 1
+    return r
+
+
+"""
+Fixed block dim 1024
+Fixed number of kernel calls 2
+Elements per thread = T
+Elements per block = T * 1024
+Number of blocks = ceildiv(d, 1024 * T)
+For length d, we want num blocks = ceildiv(d, 1024 * T) <= 1024 * T => (1024^2) T^2 = d, T = ceil(sqrt(d/1024^2))
+"""
+
+
 @reduction_module_cuda.compile_fn(numerical_unary_specs, pybind=True)
 def reduction[T: DType, Op: Callable](
     a: list[T], a_off: i64, a_row_stride: i64, a_col_stride: i64, c: list[T], c_off: i64, c_stride: i64, n: i64, d: i64
 ) -> void:
-    block_dim_x: u32 = (d + 1024 - 1) // 1024
+    coarse_factor: i64 = ceil_sqrt(d // (1024 * 1024))
+    if coarse_factor < 1:
+        coarse_factor = 1
+    block_dim_x: u32 = (d + (coarse_factor * 1024) - 1) // (coarse_factor * 1024)
     block_dim_y: u32 = n
     grid: dim3 = [block_dim_x, block_dim_y]  # type: ignore
-    Op[[[grid, 1024]]](a, a_off, a_row_stride, a_col_stride, c, c_off, c_stride, d, 16)  # type: ignore[unsupported-operation]
+    work_arr: list[T] = []
+    cudaMalloc(ref(work_arr), block_dim_x * block_dim_y * sizeof(T))
+    Op[[[grid, 1024]]](a, a_off, a_row_stride, a_col_stride, work_arr, 0, block_dim_x, d, coarse_factor)  # type: ignore[unsupported-operation]
+    grid = [1, block_dim_y]  # type: ignore
+    coarse_factor_2: i64 = (block_dim_x + 1024 - 1) // 1024
+    Op[[[grid, 1024]]](work_arr, 0, block_dim_x, 1, c, c_off, c_stride, block_dim_x, coarse_factor_2)  # type: ignore[unsupported-operation]
+    cudaFree(work_arr)
 
 
 reduction_module = reduction_module_cuda.compile("nvcc")

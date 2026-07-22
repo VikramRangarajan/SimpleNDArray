@@ -11,6 +11,9 @@ def ref[T](x: T) -> list[T]:
     return [x]
 
 
+def sizeof[T](x: T) -> int: ...
+
+
 def _c_type(node: ast.AST) -> str:
     match node:
         case ast.Name(id="void_ptr"):

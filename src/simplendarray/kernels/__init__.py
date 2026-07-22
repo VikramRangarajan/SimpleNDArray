@@ -4,7 +4,7 @@ from simplendarray.dtypes import cname, ctype, get_dtype
 from simplendarray.utils import all_eq, product
 
 from .cpu import element_wise_module, reduction_module
-from .cuda import element_wise_module_cuda
+from .cuda import element_wise_module_cuda, reduction_module_cuda
 
 if TYPE_CHECKING:
     from simplendarray import Array, Buffer, BufferCuda
@@ -16,7 +16,7 @@ elem_wise_modules = {
     "cpu": element_wise_module,
 }
 
-reduction_modules = {"cpu": reduction_module}
+reduction_modules = {"cpu": reduction_module, "gpu": reduction_module_cuda}
 
 
 def dispatch_element_wise_unary(array: Array, out: Array, op: str):
@@ -127,7 +127,10 @@ def dispatch_reduction(a_arr: Array, b_arr: Array, op: str, dims: tuple[int]):
         raise ValueError("All arrays must be the same size, dtype, and device")
     dt = get_dtype(a_arr.data.typecode)
 
-    dispatch_key = (("T", ctype(dt)), ("Op", f"_{op}_{cname(dt)}"))
+    if a_arr.device == "gpu":
+        dispatch_key = (("T", ctype(dt)), ("Op", f"reduction_kernel_{op}_{cname(dt)}"))
+    else:
+        dispatch_key = (("T", ctype(dt)), ("Op", f"_{op}_{cname(dt)}"))
 
     if a_arr.ndim < 2:
         raise ValueError("Unsqueeze not implemented yet")
