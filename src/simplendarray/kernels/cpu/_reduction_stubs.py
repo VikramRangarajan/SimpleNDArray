@@ -7,7 +7,7 @@ from simplendarray.transpiler.runtime import PythonModule
 
 class _ReductionModuleClass(PythonModule):
     if TYPE_CHECKING:
-        DISPATCH_DICT_reduction: ClassVar[dict[tuple, Callable[..., None]]]
+        DISPATCH_DICT_reduction: ClassVar[dict[str, Callable[..., None]]]
 
         def reduction_add_float(self, a: int, a_off: int, a_row_stride: int, a_col_stride: int, c: int, c_off: int, c_stride: int, n: int, d: int) -> None: ...
         def reduction_mul_float(self, a: int, a_off: int, a_row_stride: int, a_col_stride: int, c: int, c_off: int, c_stride: int, n: int, d: int) -> None: ...

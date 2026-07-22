@@ -7,10 +7,10 @@ from simplendarray.transpiler.runtime import PythonModule
 
 class _ElementWiseModuleClass(PythonModule):
     if TYPE_CHECKING:
-        DISPATCH_DICT_element_wise_binary: ClassVar[dict[tuple, Callable[..., None]]]
-        DISPATCH_DICT_element_wise_unary: ClassVar[dict[tuple, Callable[..., None]]]
-        DISPATCH_DICT_arange: ClassVar[dict[tuple, Callable[..., None]]]
-        DISPATCH_DICT_reshape_copy: ClassVar[dict[tuple, Callable[..., None]]]
+        DISPATCH_DICT_element_wise_binary: ClassVar[dict[str, Callable[..., None]]]
+        DISPATCH_DICT_element_wise_unary: ClassVar[dict[str, Callable[..., None]]]
+        DISPATCH_DICT_arange: ClassVar[dict[str, Callable[..., None]]]
+        DISPATCH_DICT_reshape_copy: ClassVar[dict[str, Callable[..., None]]]
 
         def element_wise_binary_float__add(self, a: int, a_off: int, a_stride: int, b: int, b_off: int, b_stride: int, c: int, c_off: int, c_stride: int, n: int) -> None: ...
         def element_wise_binary_float__sub(self, a: int, a_off: int, a_stride: int, b: int, b_off: int, b_stride: int, c: int, c_off: int, c_stride: int, n: int) -> None: ...

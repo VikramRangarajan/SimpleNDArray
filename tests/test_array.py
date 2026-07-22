@@ -1116,7 +1116,7 @@ class TestDispatchErrorPaths:
         mock_dispatch = MagicMock()
         mock_gpu_module = MagicMock()
         mock_gpu_module.DISPATCH_DICT_element_wise_binary = {
-            (("T", "int"), ("Op", "_add_int")): mock_dispatch,
+            "element_wise_binary_int__add": mock_dispatch,
         }
         monkeypatch.setitem(_kernels.elem_wise_modules, "gpu", mock_gpu_module)
 
@@ -1176,7 +1176,7 @@ class TestDispatchErrorPaths:
         mock_dispatch = MagicMock()
         mock_gpu_module = MagicMock()
         mock_gpu_module.DISPATCH_DICT_reshape_copy = {
-            (("T", "int"), ("Kernel", "reshape_copy_kernel_int")): mock_dispatch,
+            "reshape_copy_int": mock_dispatch,
         }
         monkeypatch.setitem(_kernels.elem_wise_modules, "gpu", mock_gpu_module)
 
@@ -1226,7 +1226,7 @@ class TestDispatchErrorPaths:
         mock_dispatch = MagicMock()
         mock_gpu_module = MagicMock()
         mock_gpu_module.DISPATCH_DICT_arange = {
-            (("T", "int"), ("Kernel", "arange_kernel_int")): mock_dispatch,
+            "arange_int": mock_dispatch,
         }
         monkeypatch.setitem(_kernels.elem_wise_modules, "gpu", mock_gpu_module)
 
@@ -1436,7 +1436,7 @@ class TestReductionErrorPaths:
         mock_dispatch = MagicMock()
         mock_gpu_module = MagicMock()
         mock_gpu_module.DISPATCH_DICT_reduction = {
-            (("T", "int"), ("Op", "reduction_kernel_add_int")): mock_dispatch,
+            "reduction_add_int": mock_dispatch,
         }
         monkeypatch.setitem(_kernels.reduction_modules, "gpu", mock_gpu_module)
 

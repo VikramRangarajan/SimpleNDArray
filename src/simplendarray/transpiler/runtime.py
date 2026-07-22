@@ -480,7 +480,7 @@ class PythonModule:
                 ):
                     seen_groups.add(func.group)
                     lines.append(
-                        f"{T * 2}DISPATCH_DICT_{func.group}: ClassVar[dict[tuple, Callable[..., None]]]"  # noqa: E501
+                        f"{T * 2}DISPATCH_DICT_{func.group}: ClassVar[dict[str, Callable[..., None]]]"  # noqa: E501
                     )
             if seen_groups:
                 lines.append("")
@@ -544,7 +544,7 @@ class PythonModule:
                     specialized = substituter.visit(fn_copy)
                     ast.fix_missing_locations(specialized)
                     group = func.__name__
-                    dispatch_key = tuple(spec.mapping.items())
+                    dispatch_key = fn_name
                     self._register_ast(fn_name, specialized, c_attrs, pybind, group=group, dispatch_key=dispatch_key)
             else:
                 group = func.__name__

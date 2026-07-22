@@ -24,11 +24,9 @@ AI was used only to generate tests, and do other menial tasks that came with the
 - Unify Buffer and BufferCuda
 - Figure out proper memory management for the above 2
 - Pivot away from array.array for Buffer? Can get rid of typecode shenanigans
-- Add array broadcasting
 - Transpiler: Add macro support for forced inlining
 - Implement more proper testing suite?
-- Benchmarking vs. numpy, pytorch/cublas, etc.
-- Start with reduction ops, then go to linear ops (matmul, conv), then flash attention, moe, etc.
+- Do linear ops (matmul, conv), then flash attention, moe, etc.
 - Add Cuda Graphs
+- Add autodiff
 - Add documentation
-- Better dispatch implementation (more robust)?

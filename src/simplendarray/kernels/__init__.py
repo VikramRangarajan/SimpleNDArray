@@ -1,6 +1,6 @@
 from typing import TYPE_CHECKING
 
-from simplendarray.dtypes import cname, ctype, get_dtype
+from simplendarray.dtypes import cname, get_dtype
 from simplendarray.utils import all_eq, product
 
 from .cpu import element_wise_module, reduction_module
@@ -23,7 +23,7 @@ def dispatch_element_wise_unary(array: Array, out: Array, op: str):
 
     dt = get_dtype(array.data.typecode)
 
-    dispatch_key = (("T", ctype(dt)), ("Op", f"_{op}_{cname(dt)}"))
+    key = f"element_wise_unary_{cname(dt)}__{op}"
     array = array.reshape(-1)
     out = out.reshape(-1)
 
@@ -34,9 +34,7 @@ def dispatch_element_wise_unary(array: Array, out: Array, op: str):
     c_off = out.offset
     c_stride = out.strides[0]
     n = array.size
-    elem_wise_modules[array.device].DISPATCH_DICT_element_wise_unary[dispatch_key](
-        a, a_off, a_stride, c, c_off, c_stride, n
-    )
+    elem_wise_modules[array.device].DISPATCH_DICT_element_wise_unary[key](a, a_off, a_stride, c, c_off, c_stride, n)
 
 
 def dispatch_element_wise_binary(a_arr: Array, b_arr: Array, c_arr: Array, op: str):
@@ -48,7 +46,7 @@ def dispatch_element_wise_binary(a_arr: Array, b_arr: Array, c_arr: Array, op: s
         raise ValueError("All arrays must be the same size, dtype, and device")
     dt = get_dtype(a_arr.data.typecode)
 
-    dispatch_key = (("T", ctype(dt)), ("Op", f"_{op}_{cname(dt)}"))
+    key = f"element_wise_binary_{cname(dt)}__{op}"
     a_arr = a_arr.reshape(-1)
     b_arr = b_arr.reshape(-1)
     c_arr = c_arr.reshape(-1)
@@ -66,7 +64,7 @@ def dispatch_element_wise_binary(a_arr: Array, b_arr: Array, c_arr: Array, op: s
     c_stride = c_arr.strides[0]
     n = a_arr.size
 
-    elem_wise_modules[a_arr.device].DISPATCH_DICT_element_wise_binary[dispatch_key](
+    elem_wise_modules[a_arr.device].DISPATCH_DICT_element_wise_binary[key](
         a, a_off, a_stride, b, b_off, b_stride, c, c_off, c_stride, n
     )
 
@@ -87,13 +85,8 @@ def dispatch_reshape_copy(
 
     out_ndim = len(new_shape)
 
-    if a_arr.device == "gpu":
-        ker_name = f"reshape_copy_kernel_{cname(dt)}"
-        dispatch_key = (("T", ctype(dt)), ("Kernel", ker_name))
-    else:
-        dispatch_key = (("T", ctype(dt)),)
-
-    elem_wise_modules[a_arr.device].DISPATCH_DICT_reshape_copy[dispatch_key](
+    key = f"reshape_copy_{cname(dt)}"
+    elem_wise_modules[a_arr.device].DISPATCH_DICT_reshape_copy[key](
         a_arr.data.address,
         inp_strides_buffer.address,
         inp_shape_buffer.address,
@@ -113,13 +106,9 @@ def dispatch_reshape_copy(
 def dispatch_arange(buf: Buffer | BufferCuda, offset: int, stride: int, n: int):
     dt = get_dtype(buf.typecode)
 
-    if buf.device == "gpu":
-        dispatch_key = (("T", ctype(dt)), ("Kernel", f"arange_kernel_{cname(dt)}"))
-    else:
-        dispatch_key = (("T", ctype(dt)),)
-
+    key = f"arange_{cname(dt)}"
     a = buf.address
-    elem_wise_modules[buf.device].DISPATCH_DICT_arange[dispatch_key](a, offset, stride, n)
+    elem_wise_modules[buf.device].DISPATCH_DICT_arange[key](a, offset, stride, n)
 
 
 def dispatch_reduction(a_arr: Array, b_arr: Array, op: str, dims: tuple[int, ...]):
@@ -127,10 +116,7 @@ def dispatch_reduction(a_arr: Array, b_arr: Array, op: str, dims: tuple[int, ...
         raise ValueError("All arrays must be the same size, dtype, and device")
     dt = get_dtype(a_arr.data.typecode)
 
-    if a_arr.device == "gpu":
-        dispatch_key = (("T", ctype(dt)), ("Op", f"reduction_kernel_{op}_{cname(dt)}"))
-    else:
-        dispatch_key = (("T", ctype(dt)), ("Op", f"_{op}_{cname(dt)}"))
+    key = f"reduction_{op}_{cname(dt)}"
 
     if a_arr.ndim == 1:
         a_arr = a_arr.unsqueeze(0)
@@ -150,6 +136,6 @@ def dispatch_reduction(a_arr: Array, b_arr: Array, op: str, dims: tuple[int, ...
     b_stride = b_arr.strides[0]
     n, d = a_arr.shape
 
-    reduction_modules[a_arr.device].DISPATCH_DICT_reduction[dispatch_key](
+    reduction_modules[a_arr.device].DISPATCH_DICT_reduction[key](
         a, a_off, a_row_stride, a_col_stride, b, b_off, b_stride, n, d
     )
