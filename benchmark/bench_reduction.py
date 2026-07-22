@@ -13,7 +13,7 @@ def get_stats(x: list[int]):
 def run():
     pl.Config.set_tbl_rows(10**5)
     res = []
-    for log_n in range(27, 31, 3):
+    for log_n in range(0, 31, 3):
         n = 1 << log_n
         print(f"Benchmarking n = {n} (2^{log_n})")
         REPEATS = 10
@@ -25,10 +25,10 @@ def run():
             from simplendarray import Array
 
             for i in range(int(os.environ["REPEATS"])):
-                a = Array.arange(int(os.environ["N"]), "f", "gpu").reshape((1, -1)).sin()
-                _trash = Array.empty(2**26, "f", "gpu").cos()  # Clear L2 Cache
+                a = Array.arange(int(os.environ["N"]), "f", "gpu").reshape((1, -1))
+                _trash = Array.empty(2**26, "f", "gpu").sin()  # Clear L2 Cache
                 _b = a.sum((1,))
-                _trash = Array.empty(2**26, "f", "gpu").cos()  # Clear L2 Cache
+                _trash = Array.empty(2**26, "f", "gpu").sin()  # Clear L2 Cache
 
         @benchmark({"N": str(n), "REPEATS": str(REPEATS)})
         def torch():
@@ -45,7 +45,8 @@ def run():
         num_bytes = n * 4
         our_times = snda()
         our_sum = [x for x in our_times if "reduction_kernel" in x["name"]]
-        our_sum_durations_ns = [x["duration_ns"] for x in our_sum]
+        num_kernels_per_sum = len(our_sum) // REPEATS
+        our_sum_durations_ns = [sum(x["duration_ns"] for x in batch) for batch in batched(our_sum, num_kernels_per_sum)]
         mean_our_sum, min_our_sum, max_our_sum = get_stats(our_sum_durations_ns)
 
         mean_our_sum_gbps = (num_bytes / mean_our_sum) * 10**9

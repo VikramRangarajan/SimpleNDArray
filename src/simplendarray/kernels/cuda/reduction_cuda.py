@@ -50,8 +50,8 @@ def _min[T: DType](x: T, y: T) -> T:
 
 reduction_kernel_specs: list[SpecItem] = []
 for dt in all_dtypes:
-    for op in ["add", "max", "min"]:  # TODO: mul
-        default_value = {"add": "0", "max": "-INFINITY", "min": "INFINITY"}[op]
+    for op in ["add", "max", "min", "mul"]:
+        default_value = {"add": "0", "max": "-INFINITY", "min": "INFINITY", "mul": "1"}[op]
         reduction_kernel_specs.append(
             SpecItem(
                 {"T": ctype(dt), "Op": f"_{op}_{cname(dt)}", "T_DEFAULT_VALUE": default_value},
@@ -98,7 +98,7 @@ def reduction_kernel[T: DType, Op: Callable, T_DEFAULT_VALUE: DType](
 
 numerical_unary_specs: list[SpecItem] = []
 for dt in all_dtypes:
-    for op in ["add", "max", "min"]:  # TODO: mul
+    for op in ["add", "max", "min", "mul"]:
         numerical_unary_specs.append(
             SpecItem({"T": ctype(dt), "Op": f"reduction_kernel_{op}_{cname(dt)}"}, f"reduction_{op}_{cname(dt)}")
         )
@@ -129,6 +129,7 @@ def reduction[T: DType, Op: Callable](
     coarse_factor: i64 = ceil_sqrt(d // (1024 * 1024))
     if coarse_factor < 1:
         coarse_factor = 1
+    # Really this coarse factor can be any number >= 1. course_factor_2 makes up for any extra blocks > 1024.
     block_dim_x: u32 = (d + (coarse_factor * 1024) - 1) // (coarse_factor * 1024)
     block_dim_y: u32 = n
     grid: dim3 = [block_dim_x, block_dim_y]  # type: ignore
