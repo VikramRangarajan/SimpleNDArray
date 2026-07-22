@@ -1,6 +1,7 @@
 from simplendarray.dtypes import all_float_dtypes, cname, ctype, i64
 from simplendarray.transpiler.runtime import DType, SpecItem
-from simplendarray.transpiler.runtime import PythonModule as _BmmModuleClass
+
+from ._bmm_stubs import _BmmModuleClass
 
 void = None
 
