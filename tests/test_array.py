@@ -14,6 +14,7 @@ from simplendarray.buffer_cuda import BufferCuda
 from simplendarray.kernels import (
     dispatch_arange,
     dispatch_element_wise_binary,
+    dispatch_reduction,
     dispatch_reshape_copy,
 )
 from simplendarray.utils import contiguous_strides, product
@@ -118,6 +119,7 @@ class TestArrayConstruction:
     def test_from_iterable_device_gpu_mocked(self, monkeypatch):
         mock_buffer = MagicMock()
         mock_buffer.device = "gpu"
+        mock_buffer.typecode = "i"
         monkeypatch.setattr(BufferCuda, "from_iterable", lambda data, dtype: mock_buffer)
 
         a = Array.from_iterable([1, 2, 3], "i", device="gpu")
@@ -760,6 +762,23 @@ def test_arange_device_gpu_mocked(monkeypatch) -> None:
     mock_dispatch.assert_called_once_with(mock_buffer, 0, 1, 5)
 
 
+class TestEmpty:
+    def test_empty_basic(self):
+        a = Array.empty(5, "i")
+        assert a.shape == (5,)
+        assert a.strides == (1,)
+        assert list(a.data.data) == [0, 0, 0, 0, 0]
+
+    def test_empty_with_float_dtype(self):
+        a = Array.empty(3, "d")
+        assert a.shape == (3,)
+        assert list(a.data.data) == [0.0, 0.0, 0.0]
+
+    def test_empty_negative_raises(self):
+        with pytest.raises(ValueError, match="numel must be >= 0"):
+            Array.empty(-1, "i")
+
+
 def test_arange_invalid_device() -> None:
     with pytest.raises(KeyError):
         Array.arange(5, "i", device="invalid")  # type: ignore[bad-argument-type]
@@ -1046,3 +1065,211 @@ class TestDispatchErrorPaths:
         mock_buf.address = 12345
         dispatch_arange(mock_buf, 0, 1, 5)
         mock_dispatch.assert_called_once_with(12345, 0, 1, 5)
+
+
+class TestBinaryOpBroadcasting:
+    def test_add_with_scalar_rev(self):
+        a = Array.from_iterable([1, 2, 3], "i")
+        r = 5 + a
+        assert r.to_python() == [6, 7, 8]
+
+    def test_add_with_scalar(self):
+        a = Array.from_iterable([1, 2, 3], "i")
+        r = a + 5
+        assert r.to_python() == [6, 7, 8]
+
+    def test_sub_with_scalar(self):
+        a = Array.from_iterable([10, 20, 30], "i")
+        r = a - 5
+        assert r.to_python() == [5, 15, 25]
+
+    def test_mul_with_scalar(self):
+        a = Array.from_iterable([1, 2, 3], "i")
+        r = a * 3
+        assert r.to_python() == [3, 6, 9]
+
+    def test_div_with_scalar(self):
+        a = Array.from_iterable([10.0, 20.0, 30.0], "d")
+        r = a / 2.0
+        assert r.to_python() == [5.0, 10.0, 15.0]
+
+    def test_broadcast_1d_to_2d(self):
+        a = Array.from_iterable([[1, 2, 3], [4, 5, 6]], "i")
+        b = Array.from_iterable([10, 20, 30], "i")
+        r = a + b
+        assert r.to_python() == [[11, 22, 33], [14, 25, 36]]
+
+    def test_broadcast_2d_to_1d(self):
+        a = Array.from_iterable([10, 20, 30], "i")
+        b = Array.from_iterable([[1, 2, 3]], "i")
+        r = a + b
+        assert r.to_python() == [[11, 22, 33]]
+
+    def test_broadcast_dim1_expand(self):
+        a = Array.from_iterable([[1, 2, 3]], "i")
+        b = Array.from_iterable([[10, 20, 30], [40, 50, 60]], "i")
+        r = a + b
+        assert r.to_python() == [[11, 22, 33], [41, 52, 63]]
+
+    def test_broadcast_non_compatible_raises(self):
+        a = Array.from_iterable([1, 2], "i")
+        b = Array.from_iterable([1, 2, 3], "i")
+        with pytest.raises(ValueError, match="Not Broadcastable"):
+            a + b
+
+
+class TestTransposeErrors:
+    def test_transpose_wrong_dims_raises(self):
+        a = _make_array((2, 3))
+        with pytest.raises(ValueError, match="Transpose dims needs to be the same length"):
+            a.transpose((0,))
+
+
+class TestReduction:
+    def test_sum_2d_axis0(self):
+        a = Array.from_iterable([[1, 2], [3, 4]], "i")
+        r = a.sum((0,))
+        assert r.to_python() == [4, 6]
+
+    def test_sum_2d_axis1(self):
+        a = Array.from_iterable([[1, 2], [3, 4]], "i")
+        r = a.sum((1,))
+        assert r.to_python() == [3, 7]
+
+    def test_sum_2d_float(self):
+        a = Array.from_iterable([[1.5, 2.5], [3.5, 4.5]], "d")
+        r = a.sum((0,))
+        assert r.to_python() == [5.0, 7.0]
+
+    def test_max_2d_axis1(self):
+        a = Array.from_iterable([[1, 5], [3, 2]], "i")
+        r = a.max((1,))
+        assert r.to_python() == [5, 3]
+
+    def test_min_2d_axis0(self):
+        a = Array.from_iterable([[1, 5], [3, 2]], "i")
+        r = a.min((0,))
+        assert r.to_python() == [1, 2]
+
+    def test_prod_2d_axis0(self):
+        a = Array.from_iterable([[2, 3], [4, 5]], "i")
+        r = a.prod((0,))
+        assert r.to_python() == [8, 15]
+
+    def test_prod_2d_axis1(self):
+        a = Array.from_iterable([[2, 3], [4, 5]], "i")
+        r = a.prod((1,))
+        assert r.to_python() == [6, 20]
+
+
+class TestReductionErrorPaths:
+    def test_typecode_mismatch(self):
+        a = _make_array((2, 3))
+        out_buf = Buffer(array.array("f", [0.0, 0.0, 0.0]))
+        out = Array(out_buf, (3,), (1,), 0)
+        with pytest.raises(ValueError, match="same size, dtype, and device"):
+            dispatch_reduction(a, out, "add", (0,))
+
+    def test_device_mismatch(self):
+        mock_buf_cpu = MagicMock()
+        mock_buf_cpu.typecode = "i"
+        mock_buf_cpu.device = "cpu"
+        mock_buf_gpu = MagicMock()
+        mock_buf_gpu.typecode = "i"
+        mock_buf_gpu.device = "gpu"
+
+        a = MagicMock()
+        a.data = mock_buf_cpu
+        a.shape = (2, 3)
+        a.strides = (3, 1)
+        a.offset = 0
+        a.device = "cpu"
+        a.ndim = 2
+        a.size = 6
+
+        out = MagicMock()
+        out.data = mock_buf_gpu
+        out.shape = (3,)
+        out.strides = (1,)
+        out.offset = 0
+        out.device = "gpu"
+
+        with pytest.raises(ValueError, match="same size, dtype, and device"):
+            dispatch_reduction(a, out, "add", (0,))
+
+    def test_ndim_lt_2_raises(self):
+        a = _make_array((4,))
+        out = _make_array((4,))
+        with pytest.raises(ValueError, match="Unsqueeze not implemented yet"):
+            dispatch_reduction(a, out, "add", (0,))
+
+    def test_output_shape_mismatch(self):
+        a = _make_array((3, 4))
+        out_buf = Buffer(array.array("i", [0] * 5))
+        out = Array(out_buf, (5,), (1,), 0)
+        with pytest.raises(ValueError, match="Output array is invalid shape"):
+            dispatch_reduction(a, out, "add", (0,))
+
+    def test_reduction_op_ndim_lt_2(self):
+        a = Array.from_iterable([1, 2, 3, 4], "i")
+        with pytest.raises(ValueError, match="Unsqueeze not implemented yet"):
+            a.sum((0,))
+
+    def test_gpu_mocked(self, monkeypatch):
+        mock_dispatch = MagicMock()
+        mock_gpu_module = MagicMock()
+        mock_gpu_module.DISPATCH_DICT_reduction = {
+            (("T", "int"), ("Op", "reduction_kernel_add_int")): mock_dispatch,
+        }
+        monkeypatch.setitem(_kernels.reduction_modules, "gpu", mock_gpu_module)
+
+        mock_buf = MagicMock()
+        mock_buf.device = "gpu"
+        mock_buf.typecode = "i"
+        mock_buf.address = 9999
+
+        class FakeArray:
+            data = mock_buf
+            shape = (2, 3)
+            strides = (3, 1)
+            offset = 0
+            device = "gpu"
+            ndim = 2
+            size = 6
+
+            def reshape(self, new_shape):
+                r = MagicMock()
+                r.data = mock_buf
+                r.shape = (3, 2)
+                r.strides = (1, 3)
+                r.offset = 0
+                r.device = "gpu"
+                return r
+
+            def transpose(self, dims):
+                r = MagicMock()
+                r.data = mock_buf
+                r.shape = (3, 2)
+                r.strides = (1, 3)
+                r.offset = 0
+                r.device = "gpu"
+
+                r2 = MagicMock()
+                r2.data = mock_buf
+                r2.shape = (3, 2)
+                r2.strides = (1, 3)
+                r2.offset = 0
+                r2.device = "gpu"
+                r.reshape = lambda new_shape: r2
+                return r
+
+        out = MagicMock()
+        out.data = mock_buf
+        out.shape = (3,)
+        out.strides = (1,)
+        out.offset = 0
+        out.device = "gpu"
+
+        a = FakeArray()
+        dispatch_reduction(a, out, "add", (0,))  # pyrefly: ignore [bad-argument-type]
+        mock_dispatch.assert_called_once()

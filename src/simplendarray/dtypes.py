@@ -63,8 +63,8 @@ dtype_maps = {
 
 def get_dtype(dtype: str | type[DType]) -> type[DType]:
     """Given a DType class or array.array typecode, return the corresponding DType class."""
-    if isinstance(dtype, type) and issubclass(dtype, DType):
-        return dtype  # pragma: no cover
+    if dtype in all_dtypes:
+        return dtype  # pragma: no cover # type: ignore
     if dtype in dtype_maps:
         return dtype_maps[dtype]  # type: ignore
     raise KeyError(f"Unknown dtype: {dtype}")  # pragma: no cover

@@ -90,6 +90,7 @@ class Array:
         self.shape = shape
         self.strides = strides
         self.offset = offset
+        self.dtype = get_dtype(self.data.typecode)
 
     @property
     def ndim(self):
@@ -165,6 +166,9 @@ class Array:
         return Array(self.data, tuple(new_shape), tuple(new_strides), new_offset)
 
     def transpose(self, dims: Iterable[int]) -> "Array":
+        dims = list(dims)
+        if len(dims) != self.ndim:
+            raise ValueError("Transpose dims needs to be the same length as array ndim")
         new_shape = tuple(self.shape[i] for i in dims)
         new_strides = tuple(self.strides[i] for i in dims)
         return Array(self.data, new_shape, new_strides, self.offset)
@@ -256,7 +260,33 @@ class Array:
 
     @staticmethod
     def binary_op(op: str):
-        def fn(self: Array, other: Array) -> Array:
+        def fn(self: Array, other) -> Array:
+            if not isinstance(other, Array):
+                other = Array.from_iterable(other, self.dtype, self.device)
+            shape_1, strides_1, shape_2, strides_2 = self.shape, self.strides, other.shape, other.strides
+            if len(shape_1) < len(shape_2):
+                shape_1 = (1,) * (len(shape_2) - len(shape_1)) + shape_1
+                strides_1 = (1,) * (len(strides_2) - len(strides_1)) + strides_1
+            if len(shape_2) < len(shape_1):
+                shape_2 = (1,) * (len(shape_1) - len(shape_2)) + shape_2
+                strides_2 = (1,) * (len(strides_1) - len(strides_2)) + strides_2
+            new_shape_1, new_strides_1, new_shape_2, new_strides_2 = [()] * 4
+            for sh1, st1, sh2, st2 in zip(shape_1, strides_1, shape_2, strides_2):
+                if sh1 != sh2:
+                    if sh1 != 1 and sh2 != 1:
+                        raise ValueError("Not Broadcastable Arrays")
+                    if sh1 == 1:
+                        sh1 = sh2
+                        st1 = 0
+                    if sh2 == 1:
+                        sh2 = sh1
+                        st2 = 0
+                new_shape_1 += (sh1,)
+                new_strides_1 += (st1,)
+                new_shape_2 += (sh2,)
+                new_strides_2 += (st2,)
+            self = Array(self.data, new_shape_1, new_strides_1, self.offset)
+            other = Array(other.data, new_shape_2, new_strides_2, other.offset)
             buf = buf_cls[self.device].empty(product(self.shape), self.data.typecode)
             out = Array(buf, self.shape, contiguous_strides(self.shape), 0)
             dispatch_element_wise_binary(self, other, out, op)
@@ -265,10 +295,15 @@ class Array:
         return fn
 
     __add__ = binary_op("add")
+    __radd__ = binary_op("add")
     __sub__ = binary_op("sub")
+    __rsub__ = binary_op("sub")
     __mul__ = binary_op("mul")
+    __rmul__ = binary_op("mul")
     __div__ = binary_op("div")
+    __rdiv__ = binary_op("div")
     __truediv__ = binary_op("div")
+    __rtruediv__ = binary_op("div")
     atan2 = binary_op("atan2")
 
     @staticmethod
