@@ -11,6 +11,7 @@ requires-python = ">=3.14"
 dependencies = []
 
 [tool.pyrefly]
+search_path = ["src", "benchmark"]
 project-includes = [
     "**/*.py*",
     "**/*.ipynb",
@@ -46,19 +47,43 @@ exclude_also = [
 ]
 
 [build-system]
-requires = ["uv_build>=0.10.4,<0.11.0"]
+requires = ["uv_build>=0.11,<0.12"]
 build-backend = "uv_build"
 
 [dependency-groups]
 dev = [
+    "altair>=6.2.2",
     "hypothesis[numpy]>=6.156.1",
     "mkdocs>=1.6.1",
     "mkdocs-material>=9.7.6",
     "mkdocstrings[python]>=1.0.4",
+    "plotly>=6.9.0",
+    "polars>=1.43.0",
     "prek>=0.4.8",
     "pyrefly>=1.1.1",
     "pytest>=9.1.1",
     "pytest-cov>=7.1.0",
     "pytest-xdist[psutil]>=3.8.0",
     "ruff>=0.15.20",
+    "torch>=2.13.0",
+    "torchaudio>=2.11.0",
+    "torchvision>=0.28.0",
+    "vl-convert-python>=1.9.0.post1",
 ]
+
+[tool.uv.sources]
+cypherbench = { git = "https://github.com/VikramRangarajan/cypherbench.git" }
+torch = [
+    { index = "pytorch-cu129" },
+]
+torchvision = [
+    { index = "pytorch-cu129" },
+]
+torchaudio = [
+    { index = "pytorch-cu129" },
+]
+
+[[tool.uv.index]]
+name = "pytorch-cu129"
+url = "https://download.pytorch.org/whl/cu129"
+explicit = true

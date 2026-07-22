@@ -69,6 +69,14 @@ class Array:
         return cls(buffer, shape, strides, offset)
 
     @classmethod
+    def empty(cls, numel: int, dtype: str | type[DType], device: Device = "cpu") -> "Array":
+        if numel < 0:
+            raise ValueError("numel must be >= 0")
+        _typecode = typecode(get_dtype(dtype))
+        buffer = buf_cls[device].empty(numel, _typecode)
+        return cls(buffer, (numel,), (1,), 0)
+
+    @classmethod
     def arange(cls, numel: int, dtype: str | type[DType], device: Device = "cpu") -> "Array":
         if numel < 0:
             raise ValueError("numel must be >= 0")
