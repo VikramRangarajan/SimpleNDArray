@@ -3,7 +3,7 @@ from typing import TYPE_CHECKING
 from simplendarray.dtypes import cname, get_dtype
 from simplendarray.utils import all_eq, product
 
-from .cpu import element_wise_module, reduction_module
+from .cpu import bmm_module, element_wise_module, reduction_module
 from .cuda import element_wise_module_cuda, reduction_module_cuda
 
 if TYPE_CHECKING:
@@ -17,6 +17,8 @@ elem_wise_modules = {
 }
 
 reduction_modules = {"cpu": reduction_module, "gpu": reduction_module_cuda}
+
+bmm_modules = {"cpu": bmm_module}
 
 
 def dispatch_element_wise_unary(array: Array, out: Array, op: str):

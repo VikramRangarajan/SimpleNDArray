@@ -94,7 +94,7 @@ def _expr(node: ast.AST | None) -> str:
             return "(NULL)"
         case ast.Constant(value=bool(b)):
             return f"{int(b)}"
-        case ast.Constant(value=int(i)):
+        case ast.Constant(value=int(i) | float(i)):
             return str(i)
         case ast.Constant(value=str(v)):
             return f'"{v}"'
