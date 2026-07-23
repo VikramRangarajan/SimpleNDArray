@@ -49,7 +49,6 @@ def bmm_kernel[T: DType](
     b_idx: i64 = blockDim.z * blockIdx.z + threadIdx.z  # Batch idx
     m_idx: i64 = threadIdx.y + blockIdx.y * blockDim.y
     n_idx: i64 = threadIdx.x + blockIdx.x * blockDim.x
-    valid: i64 = m_idx < M and n_idx < N
     tM: i64 = threadIdx.y
     tN: i64 = threadIdx.x
     zero: Annotated[T, "const"] = 0.0  # type: ignore
@@ -71,39 +70,32 @@ def bmm_kernel[T: DType](
     acc: T = zero
 
     for k_tile in range((K + BS - 1) // BS):
-        # Load A and B tiles into smem
-
+        # Load A and B tiles into smem, then sync
         a_val: T = (
             a_tile[tM * a_stride_m + threadIdx.x * a_stride_k] if m_idx < M and k_tile * BS + threadIdx.x < K else zero
         )
-        b_val: T = b_tile[threadIdx.y * b_stride_k + tN] if n_idx < N and k_tile * BS + threadIdx.y < K else zero
+        b_val: T = (
+            b_tile[threadIdx.y * b_stride_k + tN * b_stride_n] if n_idx < N and k_tile * BS + threadIdx.y < K else zero
+        )
         a_shared[tM * BS + threadIdx.x] = a_val
         b_shared[threadIdx.y * BS + tN] = b_val
         __syncthreads()
 
+        # Perform tile matmul in shared memory
         for k_dot in range(BS):
             acc += a_shared[tM * BS + k_dot] * b_shared[k_dot * BS + tN]
 
-        # Advance a and b tiles to their next location along k dimension (go BS right/down)
+        # Advance a and b tiles to their next location along k dimension (go BS right/down). Then sync.
         a_tile = ref(a_tile[a_stride_k * BS])
         b_tile = ref(b_tile[b_stride_k * BS])
         __syncthreads()
-    if valid:
-        c_tile[tM * c_stride_m + tN] = alpha * acc + beta * c_tile[tM * c_stride_m + tN]
+    if m_idx < M and n_idx < N:
+        c_tile[tM * c_stride_m + tN] = alpha * acc + beta * c_tile[tM * c_stride_m + tN * c_stride_n]
 
 
 numerical_unary_specs: list[SpecItem] = []
 for dt in all_float_dtypes[:1]:
     numerical_unary_specs.append(SpecItem({"T": ctype(dt), "Op": f"bmm_kernel_{cname(dt)}"}, f"bmm_{cname(dt)}"))
-
-"""
-Fixed block dim 1024
-Fixed number of kernel calls 2
-Elements per thread = T
-Elements per block = T * 1024
-Number of blocks = ceildiv(d, 1024 * T)
-For length d, we want num blocks = ceildiv(d, 1024 * T) <= 1024 * T => (1024^2) T^2 = d, T = ceil(sqrt(d/1024^2))
-"""
 
 
 @bmm_module_cuda.compile_fn(numerical_unary_specs, pybind=True)
@@ -161,4 +153,4 @@ def bmm[T: DType, Op: Callable](
     )
 
 
-bmm_module_cuda = bmm_module_cuda.compile("nvcc")
+bmm_module_cuda = bmm_module_cuda.compile("nvcc", ["-O3"])

@@ -266,7 +266,7 @@ class PythonModule:
         self._compiled = True
         return True
 
-    def compile(self, compiler="gcc", cflags=None, ldflags=None) -> Self:
+    def compile(self, compiler: str = "gcc", cflags: list[str] | None = None, ldflags: list[str] | None = None) -> Self:
         if not self._funcs:
             raise ValueError("no functions registered")
         if self._compiled:
