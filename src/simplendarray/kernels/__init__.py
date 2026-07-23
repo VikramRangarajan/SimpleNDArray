@@ -1,13 +1,12 @@
 from typing import TYPE_CHECKING
 
-from simplendarray.dtypes import cname, get_dtype
-from simplendarray.utils import all_eq, product
-
+from ..dtypes import cname, get_dtype
+from ..utils import all_eq, product
 from .cpu import bmm_module, element_wise_module, reduction_module
 from .cuda import element_wise_module_cuda, reduction_module_cuda
 
 if TYPE_CHECKING:
-    from simplendarray import Array, Buffer, BufferCuda
+    from .. import Array, Buffer, BufferCuda
 
 __all__ = ["element_wise_module", "element_wise_module_cuda"]
 

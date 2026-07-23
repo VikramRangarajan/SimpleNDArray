@@ -1490,3 +1490,126 @@ class TestReductionErrorPaths:
         a = FakeArray()
         dispatch_reduction(a, out, "add", (0,))  # pyrefly: ignore [bad-argument-type]
         mock_dispatch.assert_called_once()
+
+
+class TestMatmul:
+    def test_2d_2d(self):
+        a = Array.from_iterable([[1, 2], [3, 4], [5, 6]], "f")
+        b = Array.from_iterable([[1, 2, 3], [4, 5, 6]], "f")
+        r = a @ b
+        assert r.shape == (3, 3)
+        assert r.to_python() == [[9, 12, 15], [19, 26, 33], [29, 40, 51]]
+
+    def test_1d_2d(self):
+        a = Array.from_iterable([1, 2, 3], "f")
+        b = Array.from_iterable([[1, 2], [3, 4], [5, 6]], "f")
+        r = a @ b
+        assert r.shape == (2,)
+        assert r.to_python() == [22, 28]
+
+    def test_2d_1d(self):
+        a = Array.from_iterable([[1, 2, 3], [4, 5, 6]], "f")
+        b = Array.from_iterable([1, 2, 3], "f")
+        r = a @ b
+        assert r.shape == (2,)
+        assert r.to_python() == [14, 32]
+
+    def test_1d_1d(self):
+        a = Array.from_iterable([1, 2, 3], "f")
+        b = Array.from_iterable([4, 5, 6], "f")
+        r = a @ b
+        assert r.shape == ()
+        assert r.to_python() == 32
+
+    def test_3d_3d(self):
+        a = Array.from_iterable(np.arange(24, dtype=np.float32).reshape(2, 3, 4).tolist(), "f")
+        b = Array.from_iterable(np.arange(40, dtype=np.float32).reshape(2, 4, 5).tolist(), "f")
+        r = a @ b
+        np_r = np.arange(24).reshape(2, 3, 4).astype(np.float32) @ np.arange(40).reshape(2, 4, 5).astype(np.float32)
+        assert r.to_python() == np_r.tolist()
+
+    def test_batched_broadcast(self):
+        a = Array.from_iterable(np.arange(24, dtype=np.float32).reshape(3, 1, 2, 4).tolist(), "f")
+        b = Array.from_iterable(np.arange(20, dtype=np.float32).reshape(1, 4, 5).tolist(), "f")
+        r = a @ b
+        np_r = np.arange(24).reshape(3, 1, 2, 4).astype(np.float32) @ np.arange(20).reshape(1, 4, 5).astype(np.float32)
+        assert r.to_python() == np_r.tolist()
+
+    def test_incompatible_shapes_raises(self):
+        a = Array.from_iterable([[1, 2, 3], [4, 5, 6]], "f")
+        b = Array.from_iterable([[1, 2], [3, 4]], "f")
+        with pytest.raises(ValueError, match="incompatible"):
+            a @ b
+
+    def test_double_dtype(self):
+        a = Array.from_iterable([[1.5, 2.5], [3.5, 4.5]], "d")
+        b = Array.from_iterable([[1.0, 0.0], [0.0, 1.0]], "d")
+        r = a @ b
+        assert r.shape == (2, 2)
+        assert r.to_python() == [[1.5, 2.5], [3.5, 4.5]]
+
+    def test_1d_3d(self):
+        a = Array.from_iterable([1, 2, 3, 4], "f")
+        b = Array.from_iterable(np.arange(24, dtype=np.float32).reshape(2, 4, 3).tolist(), "f")
+        r = a @ b
+        np_r = np.array([1, 2, 3, 4], dtype=np.float32) @ np.arange(24, dtype=np.float32).reshape(2, 4, 3)
+        assert r.to_python() == np_r.tolist()
+
+    def test_3d_1d(self):
+        a = Array.from_iterable(np.arange(24, dtype=np.float32).reshape(2, 3, 4).tolist(), "f")
+        b = Array.from_iterable([1, 2, 3, 4], "f")
+        r = a @ b
+        np_r = np.arange(24, dtype=np.float32).reshape(2, 3, 4) @ np.array([1, 2, 3, 4], dtype=np.float32)
+        assert r.to_python() == np_r.tolist()
+
+    def test_2d_3d(self):
+        a = Array.from_iterable(np.arange(12, dtype=np.float32).reshape(3, 4).tolist(), "f")
+        b = Array.from_iterable(np.arange(40, dtype=np.float32).reshape(2, 4, 5).tolist(), "f")
+        r = a @ b
+        np_r = np.arange(12, dtype=np.float32).reshape(3, 4) @ np.arange(40, dtype=np.float32).reshape(2, 4, 5)
+        assert r.to_python() == np_r.tolist()
+
+    def test_3d_2d(self):
+        a = Array.from_iterable(np.arange(24, dtype=np.float32).reshape(2, 3, 4).tolist(), "f")
+        b = Array.from_iterable(np.arange(20, dtype=np.float32).reshape(4, 5).tolist(), "f")
+        r = a @ b
+        np_r = np.arange(24, dtype=np.float32).reshape(2, 3, 4) @ np.arange(20, dtype=np.float32).reshape(4, 5)
+        assert r.to_python() == np_r.tolist()
+
+
+def test_broadcast_shapes_strides_empty():
+    from simplendarray.utils import broadcast_shapes_strides
+
+    assert broadcast_shapes_strides() == []
+
+
+class TestBmmDispatchErrors:
+    def test_ndim_mismatch(self):
+        from simplendarray.buffer import Buffer
+        from simplendarray.kernels import dispatch_bmm
+
+        buf = Buffer.from_iterable([1, 2, 3], "f")
+        a = Array(buf, (3,), (1,), 0)
+        with pytest.raises(ValueError, match="bmm not supported for ndim"):
+            dispatch_bmm(a, a, a)
+
+    def test_dtype_mismatch(self):
+        from simplendarray.buffer import Buffer
+        from simplendarray.kernels import dispatch_bmm
+
+        a = Array(Buffer.from_iterable([1, 2, 3, 4], "f"), (1, 1, 4), (4, 4, 1), 0)
+        b = Array(Buffer.from_iterable([1, 2, 3, 4], "d"), (1, 4, 1), (4, 1, 1), 0)
+        c = Array(Buffer.from_iterable([1], "f"), (1, 1, 1), (1, 1, 1), 0)
+        with pytest.raises(ValueError, match="same device and dtype"):
+            dispatch_bmm(a, b, c)
+
+    def test_shape_mismatch(self):
+        from simplendarray.buffer import Buffer
+        from simplendarray.kernels import dispatch_bmm
+
+        buf = Buffer.from_iterable([1, 2, 3, 4, 5, 6], "f")
+        a = Array(buf, (1, 2, 3), (3, 1, 1), 0)
+        b = Array(buf, (1, 4, 3), (3, 1, 1), 0)
+        c = Array(buf, (1, 2, 3), (3, 1, 1), 0)
+        with pytest.raises(ValueError, match="Bad shapes"):
+            dispatch_bmm(a, b, c)

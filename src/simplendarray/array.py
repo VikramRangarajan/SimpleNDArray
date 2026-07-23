@@ -2,11 +2,9 @@ from __future__ import annotations
 
 from typing import Iterable
 
-from simplendarray.dtypes import Device, DType
-
 from .buffer import Buffer
 from .buffer_cuda import BufferCuda
-from .dtypes import get_dtype, typecode
+from .dtypes import Device, DType, get_dtype, typecode
 from .kernels import (
     dispatch_arange,
     dispatch_bmm,
@@ -327,9 +325,36 @@ class Array:
     prod = reduction_op("mul")
 
     def __matmul__(self, other: Array):
-        b, m, n = self.shape[0], self.shape[1], other.shape[2]
-        out = Array.empty(b * m * n, self.dtype, self.device).reshape((b, m, n))
-        dispatch_bmm(self, other, out)
+        a, b = self, other
+
+        remove_a_prefix = a.ndim == 1
+        remove_b_suffix = b.ndim == 1
+        if remove_a_prefix:
+            a = a.unsqueeze(0)
+        if remove_b_suffix:
+            b = b.unsqueeze(-1)
+
+        if a.shape[-1] != b.shape[-2]:
+            raise ValueError("matmul: incompatible shapes")
+        m, k, n = a.shape[-2], a.shape[-1], b.shape[-1]
+
+        [(a_bs, a_bst), (b_bs, b_bst)] = broadcast_shapes_strides(
+            (a.shape[:-2], a.strides[:-2]), (b.shape[:-2], b.strides[:-2])
+        )
+        batch_shape = a_bs
+        B = product(batch_shape)
+
+        a = Array(a.data, a_bs + a.shape[-2:], a_bst + a.strides[-2:], a.offset)
+        b = Array(b.data, b_bs + b.shape[-2:], b_bst + b.strides[-2:], b.offset)
+
+        out = Array.empty(B * m * n, self.dtype, self.device).reshape((B, m, n))
+        dispatch_bmm(a.reshape((B, m, k)), b.reshape((B, k, n)), out)
+        out = out.reshape(batch_shape + (m, n))
+
+        if remove_a_prefix:
+            out = out.squeeze(len(batch_shape))
+        if remove_b_suffix:
+            out = out.squeeze(-1)
         return out
 
 
