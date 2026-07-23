@@ -98,7 +98,7 @@ def test_c_type_none_return_with_return():
     def f() -> None:
         return
 
-    expected = "void f() {\n    return (NULL);\n}"
+    expected = "void f() {\n    return;\n}"
     assert compile_str(f) == expected
 
 
@@ -362,7 +362,7 @@ def test_bare_return():
     def f() -> void:
         return
 
-    expected = "void f() {\n    return (NULL);\n}"
+    expected = "void f() {\n    return;\n}"
     assert compile_str(f) == expected
 
 

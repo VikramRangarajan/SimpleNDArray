@@ -215,11 +215,13 @@ def _stmt(node: ast.AST, indent: int = 0) -> str:
             attrs = []
             size = ""
             for r in rest:
-                if isinstance(r, ast.Constant) and isinstance(r.value, int):
-                    size = str(r.value)
-                else:
-                    s = r.value if isinstance(r, ast.Constant) and isinstance(r.value, str) else _expr(r)
-                    attrs.append(s)
+                match r:
+                    case ast.Constant(value=str(val)):
+                        attrs.append(val)
+                    case ast.Constant(value=int(val)):
+                        size = str(val)
+                    case other_r:
+                        size = _expr(other_r)
             attr_prefix = " ".join(attrs) + " " if attrs else ""
             if "__shared__" in attrs:
                 v = None
@@ -301,6 +303,9 @@ def _stmt(node: ast.AST, indent: int = 0) -> str:
             if orelse:
                 out += _else_or_elif(orelse, indent)
             return out
+
+        case ast.Return(value=None):
+            return f"{i}return;"
 
         case ast.Return(value=v):
             return f"{i}return {_expr(v)};"

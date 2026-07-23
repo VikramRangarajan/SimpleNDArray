@@ -1,11 +1,11 @@
-from math import sqrt
-from typing import Callable
+from typing import Annotated, Callable
 
 from simplendarray.dtypes import all_float_dtypes, cname, ctype, i64, u32
+from simplendarray.transpiler import ref
 from simplendarray.transpiler.runtime import DType, SpecItem
 
 from ._bmm_cuda_stubs import _BmmModuleClass
-from .helpers import blockDim, blockIdx, dim3, threadIdx
+from .helpers import __syncthreads, blockDim, blockIdx, dim3, threadIdx
 
 void = None
 
@@ -18,7 +18,7 @@ bmm_module_cuda = _BmmModuleClass(
 
 
 bmm_kernel_specs: list[SpecItem] = []
-for dt in all_float_dtypes:
+for dt in all_float_dtypes[:1]:
     bmm_kernel_specs.append(SpecItem({"T": ctype(dt)}, f"bmm_kernel_{cname(dt)}"))
 
 
@@ -46,31 +46,55 @@ def bmm_kernel[T: DType](
     alpha: T,
     beta: T,
 ) -> void:
-    b_idx: i64 = blockDim.x * blockIdx.x + threadIdx.x  # Batch idx
-    m_idx: i64 = blockDim.y * blockIdx.y + threadIdx.y
-    n_idx: i64 = blockDim.z * blockIdx.z + threadIdx.z
-    if b_idx < B and m_idx < M and n_idx < N:
-        acc: T = 0.0  # type: ignore
-        for k in range(K):
-            a_val: T = a_ptr[a_off + b_idx * a_stride_b + m_idx * a_stride_m + k * a_stride_k]
-            b_val: T = b_ptr[b_off + b_idx * b_stride_b + k * b_stride_k + n_idx * b_stride_n]
-            acc += a_val * b_val
-        c_val: T = c_ptr[c_off + b_idx * c_stride_b + m_idx * c_stride_m + n_idx * c_stride_n]
-        c_ptr[c_off + b_idx * c_stride_b + m_idx * c_stride_m + n_idx * c_stride_n] = alpha * acc + beta * c_val
+    b_idx: i64 = blockDim.z * blockIdx.z + threadIdx.z  # Batch idx
+    m_idx: i64 = threadIdx.y + blockIdx.y * blockDim.y
+    n_idx: i64 = threadIdx.x + blockIdx.x * blockDim.x
+    valid: i64 = m_idx < M and n_idx < N
+    tM: i64 = threadIdx.y
+    tN: i64 = threadIdx.x
+    zero: Annotated[T, "const"] = 0.0  # type: ignore
+    if b_idx >= B:
+        return
+    BS: Annotated[int, "const"] = 32  # Same as blockDim.x,y
+    a_shared: Annotated[list[T], "__shared__", BS * BS] = []
+    b_shared: Annotated[list[T], "__shared__", BS * BS] = []
+
+    # a_ptr, b_ptr, c_ptr to the start of the arrays at the batch index
+    # a_tile, b_tile, c_tile will be the top left of the tile assigned to this block
+    # a_tile and b_tile will slide 32 right/down along the k dimension until the end
+    a_ptr = ref(a_ptr[a_off + b_idx * a_stride_b])
+    b_ptr = ref(b_ptr[b_off + b_idx * b_stride_b])
+    c_ptr = ref(c_ptr[c_off + b_idx * c_stride_b])
+    a_tile: list[T] = ref(a_ptr[blockIdx.y * BS * a_stride_m])
+    b_tile: list[T] = ref(b_ptr[blockIdx.x * BS * b_stride_n])
+    c_tile: list[T] = ref(c_ptr[blockIdx.y * BS * c_stride_m + blockIdx.x * BS * c_stride_n])
+    acc: T = zero
+
+    for k_tile in range((K + BS - 1) // BS):
+        # Load A and B tiles into smem
+
+        a_val: T = (
+            a_tile[tM * a_stride_m + threadIdx.x * a_stride_k] if m_idx < M and k_tile * BS + threadIdx.x < K else zero
+        )
+        b_val: T = b_tile[threadIdx.y * b_stride_k + tN] if n_idx < N and k_tile * BS + threadIdx.y < K else zero
+        a_shared[tM * BS + threadIdx.x] = a_val
+        b_shared[threadIdx.y * BS + tN] = b_val
+        __syncthreads()
+
+        for k_dot in range(BS):
+            acc += a_shared[tM * BS + k_dot] * b_shared[k_dot * BS + tN]
+
+        # Advance a and b tiles to their next location along k dimension (go BS right/down)
+        a_tile = ref(a_tile[a_stride_k * BS])
+        b_tile = ref(b_tile[b_stride_k * BS])
+        __syncthreads()
+    if valid:
+        c_tile[tM * c_stride_m + tN] = alpha * acc + beta * c_tile[tM * c_stride_m + tN]
 
 
 numerical_unary_specs: list[SpecItem] = []
-for dt in all_float_dtypes:
+for dt in all_float_dtypes[:1]:
     numerical_unary_specs.append(SpecItem({"T": ctype(dt), "Op": f"bmm_kernel_{cname(dt)}"}, f"bmm_{cname(dt)}"))
-
-
-@bmm_module_cuda.compile_fn()
-def ceil_sqrt(i: i64) -> i64:
-    r: int = sqrt(i)  # type: ignore
-    while 1 * r * r < i:
-        r += 1
-    return r
-
 
 """
 Fixed block dim 1024
@@ -106,10 +130,10 @@ def bmm[T: DType, Op: Callable](
     alpha: T,
     beta: T,
 ) -> void:
-    block: dim3 = [8, 16, 8]  # for b, m, n # type: ignore
-    grid_x: u32 = (B + block.x - 1) // block.x
+    block: dim3 = [32, 32, 1]  # for n, m, b # type: ignore
+    grid_x: u32 = (N + block.x - 1) // block.x
     grid_y: u32 = (M + block.y - 1) // block.y
-    grid_z: u32 = (M + block.z - 1) // block.z
+    grid_z: u32 = (B + block.z - 1) // block.z
     grid: dim3 = [grid_x, grid_y, grid_z]  # type: ignore
 
     Op[[[grid, block]]](  # type: ignore

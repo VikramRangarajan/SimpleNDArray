@@ -16,7 +16,7 @@ def run():
     for log_n in [9, 10, 11, 12, 13]:  # range(1, 14, 3):
         n = 1 << log_n
         print(f"Benchmarking m = n = k = {n} (2^{log_n})")
-        REPEATS = 5
+        REPEATS = 2
 
         @benchmark({"N": str(n), "REPEATS": str(REPEATS)})
         def snda():
