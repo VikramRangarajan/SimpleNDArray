@@ -111,3 +111,14 @@ def mem_bandwidth():
         "NVIDIA A40": 696 * 10**9,
         "Tesla V100-PCIE-32GB": 900 * 10**9,
     }[name]
+
+
+def fp32_flops():
+    from cuda.bindings import runtime
+
+    err, device = runtime.cudaGetDevice()
+    err, props = runtime.cudaGetDeviceProperties(device)
+    name = props.name.decode()
+    return {
+        "NVIDIA A40": 37.4 * 10**12,
+    }[name]

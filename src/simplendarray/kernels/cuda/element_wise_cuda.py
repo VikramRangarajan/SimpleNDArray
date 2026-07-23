@@ -12,6 +12,7 @@ element_wise_module_cuda = _ElementWiseModuleClass(
     includes=["#include <math.h>", "#include <cuda_runtime.h>"],
     stub_path=__file__,
     stub_var="element_wise_module",
+    module_name="element_wise_module_cuda",
 )
 
 

@@ -149,9 +149,6 @@ static PyObject* {name}_wrapper(PyObject* self, PyObject* args) {{
 """
 
 
-_NDARRAY_MODULE_NAME = "_ndarray_rt_module"
-
-
 @dataclass
 class CFunction:
     name: str
@@ -166,13 +163,20 @@ class CFunction:
 
 
 class PythonModule:
-    def __init__(self, includes: list[str] | None = None, stub_path: str | None = None, stub_var: str | None = None):
+    def __init__(
+        self,
+        includes: list[str] | None = None,
+        stub_path: str | None = None,
+        stub_var: str | None = None,
+        module_name: str = "_ndarray_rt_module",
+    ):
         self._funcs: list[CFunction] = []
         self._includes = includes or []
         self._module = None
         self._compiled = False
         self._stub_path = stub_path
         self._stub_var = stub_var
+        self._module_name = module_name
 
     def _register(self, func, c_attrs: list[str], pybind: bool, group: str | None = None):
         src = dedent(inspect.getsource(func))
@@ -273,26 +277,26 @@ class PythonModule:
         if compiler == "nvcc" and shutil.which("nvcc") is None:
             return self
 
-        module_name = _NDARRAY_MODULE_NAME
+        module_name = self._module_name
         ext_src = self._generate_extension(module_name)
         ext_suffix = sysconfig.get_config_var("EXT_SUFFIX") or ".so"
         src_ext = ".cu" if compiler == "nvcc" else ".c"
         cache_dir = self._cache_dir()
         key = self._cache_key(ext_src, compiler, cflags, ldflags)
-        build_dir = cache_dir / key
+        build_dir = cache_dir / f"{module_name}_{key}"
         build_dir.mkdir(parents=True, exist_ok=True)
-        so_path = build_dir / f"{key}{ext_suffix}"
+        so_path = build_dir / f"{module_name}_{key}{ext_suffix}"
 
         if so_path.exists() and self._load_from_so(module_name, so_path):
             self._build_dispatch_dicts()
             return self
 
         with self._cache_lock(build_dir):
-            src_path = build_dir / f"{key}{src_ext}"
+            src_path = build_dir / f"{module_name}_{key}{src_ext}"
             src_path.write_text(ext_src)
 
             meta = {"compiler": compiler, "cflags": cflags, "ldflags": ldflags}
-            meta_path = build_dir / f"{key}.json"
+            meta_path = build_dir / f"{module_name}_{key}.json"
             meta_path.write_text(json.dumps(meta, indent=2))
 
             py_include = sysconfig.get_config_var("INCLUDEPY")

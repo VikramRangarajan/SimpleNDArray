@@ -13,6 +13,7 @@ bmm_module_cuda = _BmmModuleClass(
     includes=["#include <math.h>"],
     stub_path=__file__,
     stub_var="bmm_module",
+    module_name="bmm_module_cuda",
 )
 
 

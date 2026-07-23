@@ -11,6 +11,7 @@ element_wise_module = _ElementWiseModule(
     includes=["#include <math.h>"],
     stub_path=__file__,
     stub_var="element_wise_module",
+    module_name="element_wise_module",
 )
 
 

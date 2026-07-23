@@ -11,6 +11,7 @@ reduction_module = _ReductionModuleClass(
     includes=["#include <math.h>"],
     stub_path=__file__,
     stub_var="reduction_module",
+    module_name="reduction_module",
 )
 
 

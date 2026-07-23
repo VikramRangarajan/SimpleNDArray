@@ -9,6 +9,7 @@ bmm_module = _BmmModuleClass(
     includes=["#include <math.h>"],
     stub_path=__file__,
     stub_var="bmm_module",
+    module_name="bmm_module",
 )
 
 numerical_unary_specs: list[SpecItem] = []

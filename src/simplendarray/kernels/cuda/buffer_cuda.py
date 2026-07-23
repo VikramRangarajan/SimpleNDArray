@@ -12,6 +12,7 @@ buffer_cuda_module = _BufferCudaModule(
     includes=["#include <cuda_runtime.h>", "#include <stdio.h>", "#include <stdlib.h>"],
     stub_path=__file__,
     stub_var="buffer_cuda_module",
+    module_name="buffer_cuda_module",
 )
 
 fprintf = print
