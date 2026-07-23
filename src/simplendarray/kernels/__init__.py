@@ -141,3 +141,33 @@ def dispatch_reduction(a_arr: Array, b_arr: Array, op: str, dims: tuple[int, ...
     reduction_modules[a_arr.device].DISPATCH_DICT_reduction[key](
         a, a_off, a_row_stride, a_col_stride, b, b_off, b_stride, n, d
     )
+
+
+def dispatch_bmm(a_arr: Array, b_arr: Array, c_arr: Array):
+    if a_arr.ndim != 3 or b_arr.ndim != 3 or c_arr.ndim != 3:
+        raise ValueError("bmm not supported for ndim != 3, got", a_arr.shape, "@", b_arr.shape, "->", c_arr.shape)
+    if not all_eq(a_arr.device, b_arr.device, c_arr.device) or not all_eq(a_arr.dtype, b_arr.dtype, c_arr.dtype):
+        raise ValueError("All tensors must have the same device and dtype for bmm")
+    b1, m1, k1 = a_arr.shape
+    b2, k2, n1 = b_arr.shape
+    b3, m2, n2 = c_arr.shape
+    if not all_eq(b1, b2, b3) or m1 != m2 or n1 != n2 or k1 != k2:
+        raise ValueError("Bad shapes:", a_arr.shape, "@", b_arr.shape, "->", c_arr.shape)
+
+    bmm_modules[a_arr.device].DISPATCH_DICT_bmm[f"bmm_{cname(a_arr.dtype)}"](
+        a_arr.data.address,
+        a_arr.offset,
+        *a_arr.strides,
+        b_arr.data.address,
+        b_arr.offset,
+        *b_arr.strides,
+        c_arr.data.address,
+        c_arr.offset,
+        *c_arr.strides,
+        b1,
+        m1,
+        k1,
+        n1,
+        1.0,
+        0.0,
+    )

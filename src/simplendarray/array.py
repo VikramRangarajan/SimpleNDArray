@@ -9,12 +9,13 @@ from .buffer_cuda import BufferCuda
 from .dtypes import get_dtype, typecode
 from .kernels import (
     dispatch_arange,
+    dispatch_bmm,
     dispatch_element_wise_binary,
     dispatch_element_wise_unary,
     dispatch_reduction,
     dispatch_reshape_copy,
 )
-from .utils import ceildiv, contiguous_strides, product
+from .utils import broadcast_shapes_strides, ceildiv, contiguous_strides, product
 
 type BufferType = Buffer | BufferCuda
 
@@ -256,8 +257,7 @@ class Array:
     @staticmethod
     def unary_op(op: str):
         def fn(self: Array):
-            buf = buf_cls[self.device].empty(product(self.shape), self.data.typecode)
-            out = Array(buf, self.shape, contiguous_strides(self.shape), 0)
+            out = Array.empty(product(self.shape), self.dtype, self.device).reshape(self.shape)
             dispatch_element_wise_unary(self, out, op)
             return out
 
@@ -287,32 +287,10 @@ class Array:
         def fn(self: Array, other) -> Array:
             if not isinstance(other, Array):
                 other = Array.from_iterable(other, self.dtype, self.device)
-            shape_1, strides_1, shape_2, strides_2 = self.shape, self.strides, other.shape, other.strides
-            if len(shape_1) < len(shape_2):
-                shape_1 = (1,) * (len(shape_2) - len(shape_1)) + shape_1
-                strides_1 = (1,) * (len(strides_2) - len(strides_1)) + strides_1
-            if len(shape_2) < len(shape_1):
-                shape_2 = (1,) * (len(shape_1) - len(shape_2)) + shape_2
-                strides_2 = (1,) * (len(strides_1) - len(strides_2)) + strides_2
-            new_shape_1, new_strides_1, new_shape_2, new_strides_2 = [()] * 4
-            for sh1, st1, sh2, st2 in zip(shape_1, strides_1, shape_2, strides_2):
-                if sh1 != sh2:
-                    if sh1 != 1 and sh2 != 1:
-                        raise ValueError("Not Broadcastable Arrays")
-                    if sh1 == 1:
-                        sh1 = sh2
-                        st1 = 0
-                    if sh2 == 1:
-                        sh2 = sh1
-                        st2 = 0
-                new_shape_1 += (sh1,)
-                new_strides_1 += (st1,)
-                new_shape_2 += (sh2,)
-                new_strides_2 += (st2,)
-            self = Array(self.data, new_shape_1, new_strides_1, self.offset)
-            other = Array(other.data, new_shape_2, new_strides_2, other.offset)
-            buf = buf_cls[self.device].empty(product(self.shape), self.data.typecode)
-            out = Array(buf, self.shape, contiguous_strides(self.shape), 0)
+            [(s1, st1), (s2, st2)] = broadcast_shapes_strides((self.shape, self.strides), (other.shape, other.strides))
+            self = Array(self.data, s1, st1, self.offset)
+            other = Array(other.data, s2, st2, other.offset)
+            out = Array.empty(product(self.shape), self.dtype, self.device).reshape(self.shape)
             dispatch_element_wise_binary(self, other, out, op)
             return out
 
@@ -337,8 +315,7 @@ class Array:
                 dims = tuple(range(self.ndim))
             dims = tuple(d % self.ndim for d in dims)
             reduced_shape = tuple(x for i, x in enumerate(self.shape) if i not in dims)
-            buf = buf_cls[self.device].empty(product(reduced_shape), self.data.typecode)
-            out = Array(buf, (product(reduced_shape),), (1,), 0)
+            out = Array.empty(product(reduced_shape), self.dtype, self.device)
             dispatch_reduction(self, out, op, dims)
             return out.reshape(reduced_shape)
 
@@ -348,6 +325,12 @@ class Array:
     min = reduction_op("min")
     max = reduction_op("max")
     prod = reduction_op("mul")
+
+    def __matmul__(self, other: Array):
+        b, m, n = self.shape[0], self.shape[1], other.shape[2]
+        out = Array.empty(b * m * n, self.dtype, self.device).reshape((b, m, n))
+        dispatch_bmm(self, other, out)
+        return out
 
 
 def reshape_strides(
