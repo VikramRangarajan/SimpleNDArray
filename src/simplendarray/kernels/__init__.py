@@ -3,21 +3,18 @@ from typing import TYPE_CHECKING
 from ..dtypes import cname, get_dtype
 from ..utils import all_eq, product
 from .cpu import bmm_module, element_wise_module, reduction_module
-from .cuda import element_wise_module_cuda, reduction_module_cuda
+from .cuda import bmm_module_cuda, element_wise_module_cuda, reduction_module_cuda
 
 if TYPE_CHECKING:
     from .. import Array, Buffer, BufferCuda
 
 __all__ = ["element_wise_module", "element_wise_module_cuda"]
 
-elem_wise_modules = {
-    "gpu": element_wise_module_cuda,
-    "cpu": element_wise_module,
-}
+elem_wise_modules = {"gpu": element_wise_module_cuda, "cpu": element_wise_module}
 
 reduction_modules = {"cpu": reduction_module, "gpu": reduction_module_cuda}
 
-bmm_modules = {"cpu": bmm_module}
+bmm_modules = {"cpu": bmm_module, "gpu": bmm_module_cuda}
 
 
 def dispatch_element_wise_unary(array: Array, out: Array, op: str):
