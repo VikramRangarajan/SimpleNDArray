@@ -5,7 +5,7 @@ from simplendarray.transpiler import ref
 from simplendarray.transpiler.runtime import DType, SpecItem
 
 from ._bmm_cuda_stubs import _BmmModuleClass
-from .helpers import __syncthreads, blockDim, blockIdx, dim3, threadIdx
+from .helpers import __syncthreads, blockDim, blockIdx, dim3, static_assert, threadIdx
 
 void = None
 
@@ -46,51 +46,73 @@ def bmm_kernel[T: DType](
     alpha: T,
     beta: T,
 ) -> void:
+    BDX: Annotated[i64, "const"] = 16
+    BDY: Annotated[i64, "const"] = 16
+    BM: Annotated[int, "const"] = 32
+    BN: Annotated[int, "const"] = 32
+    BK: Annotated[int, "const"] = 32
     b_idx: i64 = blockDim.z * blockIdx.z + threadIdx.z  # Batch idx
-    m_idx: i64 = threadIdx.y + blockIdx.y * blockDim.y
-    n_idx: i64 = threadIdx.x + blockIdx.x * blockDim.x
     tM: i64 = threadIdx.y
     tN: i64 = threadIdx.x
     zero: Annotated[T, "const"] = 0.0  # type: ignore
     if b_idx >= B:
         return
-    BS: Annotated[int, "const"] = 32  # Same as blockDim.x,y
-    a_shared: Annotated[list[T], "__shared__", BS * BS] = []
-    b_shared: Annotated[list[T], "__shared__", BS * BS] = []
+    static_assert(BM % BDY == 0, "BM must be divisible by blockDim.y")
+    static_assert(BN % BDX == 0, "BN must be divisible by blockDim.x")
+    static_assert(BK % BDY == 0, "BK must be divisible by blockDim.y")
+    static_assert(BK % BDX == 0, "BK must be divisible by blockDim.x")
+    a_shared: Annotated[list[T], "__shared__", BM * BK] = []
+    b_shared: Annotated[list[T], "__shared__", BK * BN] = []
 
-    # a_ptr, b_ptr, c_ptr to the start of the arrays at the batch index
-    # a_tile, b_tile, c_tile will be the top left of the tile assigned to this block
-    # a_tile and b_tile will slide 32 right/down along the k dimension until the end
-    a_ptr = ref(a_ptr[a_off + b_idx * a_stride_b])
-    b_ptr = ref(b_ptr[b_off + b_idx * b_stride_b])
-    c_ptr = ref(c_ptr[c_off + b_idx * c_stride_b])
-    a_tile: list[T] = ref(a_ptr[blockIdx.y * BS * a_stride_m])
-    b_tile: list[T] = ref(b_ptr[blockIdx.x * BS * b_stride_n])
-    c_tile: list[T] = ref(c_ptr[blockIdx.y * BS * c_stride_m + blockIdx.x * BS * c_stride_n])
-    acc: T = zero
+    mpt: Annotated[i64, "const"] = BM // BDY  # M per thread
+    npt: Annotated[i64, "const"] = BN // BDX  # N per thread
 
-    for k_tile in range((K + BS - 1) // BS):
+    # a_ptr, b_ptr, c_ptr will be the top left of the tile assigned to this block
+    # a_ptr and b_ptr will slide 32 right/down along the k dimension until the end
+    a_ptr = ref(a_ptr[a_off + b_idx * a_stride_b + blockIdx.y * BM * a_stride_m])
+    b_ptr = ref(b_ptr[b_off + b_idx * b_stride_b + blockIdx.x * BN * b_stride_n])
+    c_ptr = ref(c_ptr[c_off + b_idx * c_stride_b + blockIdx.y * BM * c_stride_m + blockIdx.x * BN * c_stride_n])
+    acc: Annotated[list[T], mpt * npt] = []
+    for i in range(mpt * npt):
+        acc[i] = zero
+
+    for k_tile in range((K + BK - 1) // BK):
         # Load A and B tiles into smem, then sync
-        a_val: T = (
-            a_tile[tM * a_stride_m + threadIdx.x * a_stride_k] if m_idx < M and k_tile * BS + threadIdx.x < K else zero
-        )
-        b_val: T = (
-            b_tile[threadIdx.y * b_stride_k + tN * b_stride_n] if n_idx < N and k_tile * BS + threadIdx.y < K else zero
-        )
-        a_shared[tM * BS + threadIdx.x] = a_val
-        b_shared[threadIdx.y * BS + tN] = b_val
+        for sub_m in range(mpt):
+            for sub_k in range(BK // BDX):
+                a_val: T = (
+                    a_ptr[(sub_m * BDY + tM) * a_stride_m + (sub_k * BDX + threadIdx.x) * a_stride_k]
+                    if (sub_m * BDY + tM) + blockIdx.y * BM < M and k_tile * BK + (sub_k * BDX + threadIdx.x) < K
+                    else zero
+                )
+                a_shared[(sub_m * BDY + tM) * BK + (sub_k * BDX + threadIdx.x)] = a_val
+
+        for sub_k in range(BK // BDY):
+            for sub_n in range(npt):
+                b_val: T = (
+                    b_ptr[(sub_k * BDY + threadIdx.y) * b_stride_k + (sub_n * BDX + tN) * b_stride_n]
+                    if (sub_n * BDX + tN) + blockIdx.x * BN < N and k_tile * BK + (sub_k * BDY + threadIdx.y) < K
+                    else zero
+                )
+                b_shared[(sub_k * BDY + threadIdx.y) * BN + (sub_n * BDX + tN)] = b_val
         __syncthreads()
 
         # Perform tile matmul in shared memory
-        for k_dot in range(BS):
-            acc += a_shared[tM * BS + k_dot] * b_shared[k_dot * BS + tN]
+        for m in range(mpt):
+            for n in range(npt):
+                for k_dot in range(BK):
+                    acc[m * npt + n] += a_shared[(m * BDY + tM) * BK + k_dot] * b_shared[k_dot * BN + (n * BDX + tN)]
 
         # Advance a and b tiles to their next location along k dimension (go BS right/down). Then sync.
-        a_tile = ref(a_tile[a_stride_k * BS])
-        b_tile = ref(b_tile[b_stride_k * BS])
+        a_ptr = ref(a_ptr[a_stride_k * BK])
+        b_ptr = ref(b_ptr[b_stride_k * BK])
         __syncthreads()
-    if m_idx < M and n_idx < N:
-        c_tile[tM * c_stride_m + tN] = alpha * acc + beta * c_tile[tM * c_stride_m + tN * c_stride_n]
+    for m in range(mpt):
+        for n in range(npt):
+            if (m * BDY + tM) + blockIdx.y * BM < M and (n * BDX + tN) + blockIdx.x * BN < N:
+                c_ptr[(m * BDY + tM) * c_stride_m + (n * BDX + tN) * c_stride_n] = (
+                    alpha * acc[m * npt + n] + beta * c_ptr[(m * BDY + tM) * c_stride_m + (n * BDX + tN) * c_stride_n]
+                )
 
 
 numerical_unary_specs: list[SpecItem] = []
@@ -122,10 +144,10 @@ def bmm[T: DType, Op: Callable](
     alpha: T,
     beta: T,
 ) -> void:
-    block: dim3 = [32, 32, 1]  # for n, m, b # type: ignore
-    grid_x: u32 = (N + block.x - 1) // block.x
-    grid_y: u32 = (M + block.y - 1) // block.y
-    grid_z: u32 = (B + block.z - 1) // block.z
+    block: dim3 = [16, 16, 1]  # for n, m, b # type: ignore
+    grid_x: u32 = (N + 2 * block.x - 1) // (2 * block.x)
+    grid_y: u32 = (M + 2 * block.y - 1) // (2 * block.y)
+    grid_z: u32 = (B + block.z - 1) // (block.z)
     grid: dim3 = [grid_x, grid_y, grid_z]  # type: ignore
 
     Op[[[grid, block]]](  # type: ignore
