@@ -4,7 +4,18 @@ from simplendarray.dtypes import NULL, const_char_ptr, u64, void_ptr
 from simplendarray.transpiler import ref
 
 from ._buffer_cuda_stubs import _BufferCudaModuleClass as _BufferCudaModule
-from .helpers import cudaError_t, cudaMemcpyDeviceToHost, cudaMemcpyHostToDevice, cudaSuccess
+from .helpers import (
+    cudaError_t,
+    cudaFree,
+    cudaGetErrorName,
+    cudaGetErrorString,
+    cudaMalloc,
+    cudaMemcpy,
+    cudaMemcpyDeviceToHost,
+    cudaMemcpyHostToDevice,
+    cudaSuccess,
+    fprintf,
+)
 
 void = None
 
@@ -15,15 +26,7 @@ buffer_cuda_module = _BufferCudaModule(
     module_name="buffer_cuda_module",
 )
 
-fprintf = print
 stderr = 1
-
-
-def cudaMalloc(ptr: list[void_ptr], size: u64) -> cudaError_t: ...
-def cudaFree(ptr: void_ptr) -> cudaError_t: ...
-def cudaMemcpy(dst: void_ptr, src: void_ptr, size: u64, mode: int) -> cudaError_t: ...
-def cudaGetErrorName(error: cudaError_t) -> const_char_ptr: ...
-def cudaGetErrorString(error: cudaError_t) -> const_char_ptr: ...
 
 
 @buffer_cuda_module.compile_fn()

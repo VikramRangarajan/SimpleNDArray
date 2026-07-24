@@ -5,7 +5,19 @@ from simplendarray.transpiler import ref
 from simplendarray.transpiler.runtime import DType, SpecItem
 
 from ._bmm_cuda_stubs import _BmmModuleClass
-from .helpers import __syncthreads, blockDim, blockIdx, dim3, static_assert, threadIdx
+from .helpers import (
+    __syncthreads,
+    blockDim,
+    blockIdx,
+    cudaError_t,
+    cudaGetErrorString,
+    cudaGetLastError,
+    cudaSuccess,
+    dim3,
+    printf,
+    static_assert,
+    threadIdx,
+)
 
 void = None
 
@@ -48,9 +60,9 @@ def bmm_kernel[T: DType](
 ) -> void:
     BDX: Annotated[i64, "const"] = 16
     BDY: Annotated[i64, "const"] = 16
-    BM: Annotated[int, "const"] = 32
-    BN: Annotated[int, "const"] = 32
-    BK: Annotated[int, "const"] = 32
+    BM: Annotated[int, "const"] = 128
+    BN: Annotated[int, "const"] = 128
+    BK: Annotated[int, "const"] = 16
     b_idx: i64 = blockDim.z * blockIdx.z + threadIdx.z  # Batch idx
     tM: i64 = threadIdx.y
     tN: i64 = threadIdx.x
@@ -66,6 +78,8 @@ def bmm_kernel[T: DType](
 
     mpt: Annotated[i64, "const"] = BM // BDY  # M per thread
     npt: Annotated[i64, "const"] = BN // BDX  # N per thread
+    a_reg: Annotated[list[T], mpt] = []
+    b_reg: Annotated[list[T], npt] = []
 
     # a_ptr, b_ptr, c_ptr will be the top left of the tile assigned to this block
     # a_ptr and b_ptr will slide 32 right/down along the k dimension until the end
@@ -80,28 +94,28 @@ def bmm_kernel[T: DType](
         # Load A and B tiles into smem, then sync
         for sub_m in range(mpt):
             for sub_k in range(BK // BDX):
-                a_val: T = (
-                    a_ptr[(sub_m * BDY + tM) * a_stride_m + (sub_k * BDX + threadIdx.x) * a_stride_k]
-                    if (sub_m * BDY + tM) + blockIdx.y * BM < M and k_tile * BK + (sub_k * BDX + threadIdx.x) < K
-                    else zero
-                )
+                a_val: T = zero
+                if (sub_m * BDY + tM) + blockIdx.y * BM < M and k_tile * BK + (sub_k * BDX + threadIdx.x) < K:
+                    a_val = a_ptr[(sub_m * BDY + tM) * a_stride_m + (sub_k * BDX + threadIdx.x) * a_stride_k]
+
                 a_shared[(sub_m * BDY + tM) * BK + (sub_k * BDX + threadIdx.x)] = a_val
 
         for sub_k in range(BK // BDY):
             for sub_n in range(npt):
-                b_val: T = (
-                    b_ptr[(sub_k * BDY + threadIdx.y) * b_stride_k + (sub_n * BDX + tN) * b_stride_n]
-                    if (sub_n * BDX + tN) + blockIdx.x * BN < N and k_tile * BK + (sub_k * BDY + threadIdx.y) < K
-                    else zero
-                )
+                b_val: T = zero
+                if (sub_n * BDX + tN) + blockIdx.x * BN < N and k_tile * BK + (sub_k * BDY + threadIdx.y) < K:
+                    b_val = b_ptr[(sub_k * BDY + threadIdx.y) * b_stride_k + (sub_n * BDX + tN) * b_stride_n]
                 b_shared[(sub_k * BDY + threadIdx.y) * BN + (sub_n * BDX + tN)] = b_val
         __syncthreads()
 
-        # Perform tile matmul in shared memory
-        for m in range(mpt):
-            for n in range(npt):
-                for k_dot in range(BK):
-                    acc[m * npt + n] += a_shared[(m * BDY + tM) * BK + k_dot] * b_shared[k_dot * BN + (n * BDX + tN)]
+        # Tile matmul in registers. First move shared memory into registers, then FMA inside registers
+        for k_dot in range(BK):
+            for j in range(npt):
+                b_reg[j] = b_shared[k_dot * BN + (j * BDX + tN)]
+            for i in range(mpt):
+                a_reg[i] = a_shared[(i * BDY + tM) * BK + k_dot]
+                for j in range(npt):
+                    acc[i * npt + j] += a_reg[i] * b_reg[j]
 
         # Advance a and b tiles to their next location along k dimension (go BS right/down). Then sync.
         a_ptr = ref(a_ptr[a_stride_k * BK])
@@ -145,8 +159,8 @@ def bmm[T: DType, Op: Callable](
     beta: T,
 ) -> void:
     block: dim3 = [16, 16, 1]  # for n, m, b # type: ignore
-    grid_x: u32 = (N + 2 * block.x - 1) // (2 * block.x)
-    grid_y: u32 = (M + 2 * block.y - 1) // (2 * block.y)
+    grid_x: u32 = (N + 8 * block.x - 1) // (8 * block.x)
+    grid_y: u32 = (M + 8 * block.y - 1) // (8 * block.y)
     grid_z: u32 = (B + block.z - 1) // (block.z)
     grid: dim3 = [grid_x, grid_y, grid_z]  # type: ignore
 
@@ -173,6 +187,11 @@ def bmm[T: DType, Op: Callable](
         alpha,
         beta,
     )
+
+    err: cudaError_t = cudaGetLastError()
+    if err != cudaSuccess:
+        printf("Launch failed: %s\\n", cudaGetErrorString(err))
+        exit(123)
 
 
 bmm_module_cuda = bmm_module_cuda.compile("nvcc", ["-O3"])

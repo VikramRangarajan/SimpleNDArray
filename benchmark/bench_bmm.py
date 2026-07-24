@@ -13,7 +13,7 @@ def get_stats(x: list[int]):
 def run():
     pl.Config.set_tbl_rows(10**5)
     res = []
-    for log_n in [9, 10, 11, 12, 13]:  # range(1, 14, 3):
+    for log_n in [9, 10, 11, 12, 13, 14]:
         n = 1 << log_n
         print(f"Benchmarking m = n = k = {n} (2^{log_n})")
         REPEATS = 2
@@ -36,6 +36,7 @@ def run():
         @benchmark({"N": str(n), "REPEATS": str(REPEATS)})
         def torch():
             import os
+            from time import sleep
 
             import torch
 
@@ -50,14 +51,16 @@ def run():
                 _c = a @ b
                 _trash = torch.empty(2**26, dtype=torch.float, device="cuda").sin()  # Clear L2 Cache
 
+            # Make sure kernels complete and nsys can actually profile them
+            torch.accelerator.synchronize()
+            sleep(5)
+
         num_bytes = 4 * n * n * 4  # read A, B, C and write C: 4 matrices × n² elements × 4 bytes
-        FLOPS = (
-            2 * n * n * (n - 1) + 3 * n * n
-        )  # 2n^2(n-1) for the matmul, and an extra 3n^2 because we do C=alpha*AC+beta*C
+        FLOPS = 2 * n * n * (n - 1) + 3 * n * n
+        # 2n^2(n-1) for the matmul, and an extra 3n^2 because we do C=alpha*AC+beta*C
         AI = FLOPS / num_bytes  # flops per byte
-        MAX_FLOPS_PER_SEC = min(
-            fp32_flops(), AI * mem_bandwidth()
-        )  # max flops / sec for this problem size and hardware
+        MAX_FLOPS_PER_SEC = min(fp32_flops(), AI * mem_bandwidth())
+        # max flops / sec for this problem size and hardware
 
         our_times = snda()
         our_bmm = [x for x in our_times if "bmm" in x["name"]]

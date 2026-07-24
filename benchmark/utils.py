@@ -43,6 +43,8 @@ def _benchmark(fn: Callable[[], None], *, env: dict[str, str] | None) -> Callabl
         out = run(["uv", "run", str(tmp)], capture_output=True, env=proc_env)  # noqa: S603, S607
         if len(out.stderr) > 0:
             print(out.stderr.decode())
+        if len(out.stdout) > 0:
+            print(out.stdout.decode())
         run(  # noqa: S603
             [  # noqa: S607
                 "nsys",

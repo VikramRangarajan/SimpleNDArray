@@ -1577,6 +1577,85 @@ class TestMatmul:
         assert r.to_python() == np_r.tolist()
 
 
+@pytest.mark.skipif(not cuda_available, reason="CUDA not available")
+class TestMatmulCuda:
+    def test_2d_2d(self):
+        a = Array.from_iterable([[1, 2], [3, 4], [5, 6]], "f", device="gpu")
+        b = Array.from_iterable([[1, 2, 3], [4, 5, 6]], "f", device="gpu")
+        r = a @ b
+        assert r.shape == (3, 3)
+        assert r.to_python() == [[9, 12, 15], [19, 26, 33], [29, 40, 51]]
+
+    def test_1d_2d(self):
+        a = Array.from_iterable([1, 2, 3], "f", device="gpu")
+        b = Array.from_iterable([[1, 2], [3, 4], [5, 6]], "f", device="gpu")
+        r = a @ b
+        assert r.shape == (2,)
+        assert r.to_python() == [22, 28]
+
+    def test_2d_1d(self):
+        a = Array.from_iterable([[1, 2, 3], [4, 5, 6]], "f", device="gpu")
+        b = Array.from_iterable([1, 2, 3], "f", device="gpu")
+        r = a @ b
+        assert r.shape == (2,)
+        assert r.to_python() == [14, 32]
+
+    def test_1d_1d(self):
+        a = Array.from_iterable([1, 2, 3], "f", device="gpu")
+        b = Array.from_iterable([4, 5, 6], "f", device="gpu")
+        r = a @ b
+        assert r.shape == ()
+        assert r.to_python() == 32
+
+    def test_3d_3d(self):
+        a = Array.from_iterable(np.arange(24, dtype=np.float32).reshape(2, 3, 4).tolist(), "f", device="gpu")
+        b = Array.from_iterable(np.arange(40, dtype=np.float32).reshape(2, 4, 5).tolist(), "f", device="gpu")
+        r = a @ b
+        np_r = np.arange(24).reshape(2, 3, 4).astype(np.float32) @ np.arange(40).reshape(2, 4, 5).astype(np.float32)
+        assert r.to_python() == np_r.tolist()
+
+    def test_batched_broadcast(self):
+        a = Array.from_iterable(np.arange(24, dtype=np.float32).reshape(3, 1, 2, 4).tolist(), "f", device="gpu")
+        b = Array.from_iterable(np.arange(20, dtype=np.float32).reshape(1, 4, 5).tolist(), "f", device="gpu")
+        r = a @ b
+        np_r = np.arange(24).reshape(3, 1, 2, 4).astype(np.float32) @ np.arange(20).reshape(1, 4, 5).astype(np.float32)
+        assert r.to_python() == np_r.tolist()
+
+    def test_incompatible_shapes_raises(self):
+        a = Array.from_iterable([[1, 2, 3], [4, 5, 6]], "f", device="gpu")
+        b = Array.from_iterable([[1, 2], [3, 4]], "f", device="gpu")
+        with pytest.raises(ValueError, match="incompatible"):
+            a @ b
+
+    def test_1d_3d(self):
+        a = Array.from_iterable([1, 2, 3, 4], "f", device="gpu")
+        b = Array.from_iterable(np.arange(24, dtype=np.float32).reshape(2, 4, 3).tolist(), "f", device="gpu")
+        r = a @ b
+        np_r = np.array([1, 2, 3, 4], dtype=np.float32) @ np.arange(24, dtype=np.float32).reshape(2, 4, 3)
+        assert r.to_python() == np_r.tolist()
+
+    def test_3d_1d(self):
+        a = Array.from_iterable(np.arange(24, dtype=np.float32).reshape(2, 3, 4).tolist(), "f", device="gpu")
+        b = Array.from_iterable([1, 2, 3, 4], "f", device="gpu")
+        r = a @ b
+        np_r = np.arange(24, dtype=np.float32).reshape(2, 3, 4) @ np.array([1, 2, 3, 4], dtype=np.float32)
+        assert r.to_python() == np_r.tolist()
+
+    def test_2d_3d(self):
+        a = Array.from_iterable(np.arange(12, dtype=np.float32).reshape(3, 4).tolist(), "f", device="gpu")
+        b = Array.from_iterable(np.arange(40, dtype=np.float32).reshape(2, 4, 5).tolist(), "f", device="gpu")
+        r = a @ b
+        np_r = np.arange(12, dtype=np.float32).reshape(3, 4) @ np.arange(40, dtype=np.float32).reshape(2, 4, 5)
+        assert r.to_python() == np_r.tolist()
+
+    def test_3d_2d(self):
+        a = Array.from_iterable(np.arange(24, dtype=np.float32).reshape(2, 3, 4).tolist(), "f", device="gpu")
+        b = Array.from_iterable(np.arange(20, dtype=np.float32).reshape(4, 5).tolist(), "f", device="gpu")
+        r = a @ b
+        np_r = np.arange(24, dtype=np.float32).reshape(2, 3, 4) @ np.arange(20, dtype=np.float32).reshape(4, 5)
+        assert r.to_python() == np_r.tolist()
+
+
 def test_broadcast_shapes_strides_empty():
     from simplendarray.utils import broadcast_shapes_strides
 
